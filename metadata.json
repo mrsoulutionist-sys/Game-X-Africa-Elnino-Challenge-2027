@@ -1,0 +1,6 @@
+{
+  "name": "Emberward",
+  "description": "An atmospheric 2D action-defense game where you wield lantern fire and dash-strikes to protect the Ancient Hearth from encroaching shadow waves.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
