@@ -298,6 +298,50 @@ export function buildKitchenWorkshopRoom(
   // Baseboards on South & open walls
   addBox(group, 9.1, 0.1, 0.03, 0, 0.05, 4.24, mats.cabinetDarkMat, false, true);
 
+  // Garden Exit Door on South Wall (x = 0, z = 4.23)
+  const gardenDoorGroup = new THREE.Group();
+  gardenDoorGroup.position.set(0, 0, 4.23);
+  addBox(gardenDoorGroup, 1.36, 2.32, 0.12, 0, 1.16, 0, mats.cabinetDarkMat, false, true);
+  addBox(gardenDoorGroup, 1.12, 2.18, 0.06, 0, 1.12, -0.02, mats.cabinetMat, false, true);
+  // Frosted sunlit garden glass pane inside door
+  const gardenDoorGlassMat = new THREE.MeshBasicMaterial({ color: 0x86efac, transparent: true, opacity: 0.45 });
+  disposableExtras.push(gardenDoorGlassMat);
+  const doorGlass = new THREE.Mesh(new THREE.PlaneGeometry(0.76, 1.12), gardenDoorGlassMat);
+  doorGlass.position.set(0, 1.48, -0.055);
+  doorGlass.rotation.y = Math.PI;
+  gardenDoorGroup.add(doorGlass);
+  // Brass handle
+  addBox(gardenDoorGroup, 0.14, 0.03, 0.07, -0.4, 1.05, -0.08, mats.brassMat, false, false);
+  // Overhead "OUTDOOR GARDEN YARD" plaque
+  const exitCanvas = document.createElement('canvas');
+  exitCanvas.width = 512;
+  exitCanvas.height = 140;
+  const ectx = exitCanvas.getContext('2d')!;
+  ectx.fillStyle = '#0f172a';
+  ectx.fillRect(0, 0, 512, 140);
+  ectx.strokeStyle = '#34d399';
+  ectx.lineWidth = 6;
+  ectx.strokeRect(8, 8, 496, 124);
+  ectx.fillStyle = '#34d399';
+  ectx.font = 'bold 22px ui-monospace, monospace';
+  ectx.textAlign = 'center';
+  ectx.fillText('EXIT TO VERTICAL RACKS', 256, 48);
+  ectx.fillStyle = '#ffffff';
+  ectx.font = 'bold 40px system-ui, -apple-system, sans-serif';
+  ectx.fillText('GARDEN YARD →', 256, 102);
+  const exitTex = new THREE.CanvasTexture(exitCanvas);
+  exitTex.colorSpace = THREE.SRGBColorSpace;
+  const exitMat = new THREE.MeshBasicMaterial({ map: exitTex });
+  disposableExtras.push(exitTex, exitMat);
+  const exitSign = new THREE.Mesh(new THREE.PlaneGeometry(1.28, 0.34), exitMat);
+  exitSign.position.set(0, 2.58, -0.04);
+  exitSign.rotation.y = Math.PI;
+  gardenDoorGroup.add(exitSign);
+
+  tagTargetZone(gardenDoorGroup, 'garden_exit');
+  interactableObjects.push(gardenDoorGroup);
+  group.add(gardenDoorGroup);
+
   // 2. Daylight Kitchen Window behind Sink (x = -1.9, z = -4.38)
   addBox(group, 1.65, 1.32, 0.06, -1.9, 1.95, -4.38, mats.cabinetDarkMat, false, false);
   const windowPane = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.16), mats.windowGlowMat);
@@ -517,8 +561,9 @@ export function buildKitchenWorkshopRoom(
   const drillBeacon = createBeacon(1.2, 0.905, -3.86);
   const wickBeacon = createBeacon(3.92, 0.905, 0.15);
   const sinkBeacon = createBeacon(-1.9, 0.905, -3.65);
+  const gardenExitBeacon = createBeacon(0, 0.02, 3.75);
 
-  [sawBeacon, benchBeacon, drillBeacon, wickBeacon, sinkBeacon].forEach((b) => {
+  [sawBeacon, benchBeacon, drillBeacon, wickBeacon, sinkBeacon, gardenExitBeacon].forEach((b) => {
     group.add(b.group);
     disposableExtras.push(b.ring.geometry, b.ring.material as THREE.Material, b.arrow.geometry, b.arrow.material as THREE.Material);
   });
@@ -569,6 +614,15 @@ export function buildKitchenWorkshopRoom(
       beaconRing: sinkBeacon.ring,
       beaconArrow: sinkBeacon.arrow,
     },
+    garden_exit: {
+      id: 'garden_exit',
+      label: 'Garden Exit Door',
+      position: new THREE.Vector3(0, 0.1, 3.85),
+      interactRadius: 2.15,
+      beaconGroup: gardenExitBeacon.group,
+      beaconRing: gardenExitBeacon.ring,
+      beaconArrow: gardenExitBeacon.arrow,
+    },
   };
 
   let currentActiveZone: TargetZoneId | null = 'saw_station';
@@ -605,7 +659,7 @@ export function buildKitchenWorkshopRoom(
       THREAD_WICKS_AND_PLANT: 'workbench',
       FILL_AT_SINK: 'sink',
       POUR_AND_GROW: 'workbench',
-      COMPLETE: null,
+      COMPLETE: 'garden_exit',
     };
 
     currentActiveZone = zoneMap[step];

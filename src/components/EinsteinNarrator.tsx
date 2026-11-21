@@ -21,7 +21,7 @@ export const EinsteinNarrator: React.FC<EinsteinNarratorProps> = ({
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 32, scale: 0.9 }}
           transition={{ type: 'spring', stiffness: 360, damping: 26 }}
-          className="fixed bottom-24 md:bottom-6 left-1/2 -translate-x-1/2 z-30 w-[calc(100vw-2rem)] max-w-md pointer-events-auto"
+          className="fixed top-[5.5rem] lg:top-auto lg:bottom-6 left-1/2 -translate-x-1/2 z-30 w-[calc(100vw-2rem)] max-w-md pointer-events-none"
         >
           <div className="relative flex items-end gap-3 rounded-2xl bg-slate-950/95 border border-emerald-500/45 px-3.5 py-3 shadow-2xl">
             {/* Animated Procedural SVG Einstein Scientist Mentor */}

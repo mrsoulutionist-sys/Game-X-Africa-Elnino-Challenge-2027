@@ -261,7 +261,7 @@ export const DualTouchControls: React.FC<DualTouchControlsProps> = ({
   if (isBusy) {
     buttonText = 'Working...';
   } else if (isComplete) {
-    buttonText = actionLabel;
+    buttonText = inRange ? actionLabel : 'Toggle Cutaway';
   } else if (inRange) {
     if (manualAimMode) {
       buttonText = reticleAligned

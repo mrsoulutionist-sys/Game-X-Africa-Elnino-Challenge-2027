@@ -11,7 +11,13 @@ export type BuildStepId =
 
 export type ToolId = 'none' | 'hacksaw' | 'drill' | 'wicks' | 'pitcher_empty' | 'pitcher_full';
 
-export type TargetZoneId = 'saw_station' | 'workbench' | 'drill_station' | 'wick_station' | 'sink';
+export type TargetZoneId =
+  | 'saw_station'
+  | 'workbench'
+  | 'drill_station'
+  | 'wick_station'
+  | 'sink'
+  | 'garden_exit';
 
 export type GradeTier = '4-6' | '7-9' | '10-12';
 
@@ -95,13 +101,13 @@ export const BUILD_STEPS: Record<BuildStepId, StepDefinition> = {
     id: 'GET_WICKS',
     stepNumber: 5,
     totalSteps: 8,
-    title: 'Collect Wicks, LECA & Seeds',
-    instruction: 'Pick up the cotton Capillary Wicks, LECA substrate, and seed caddy from the East counter.',
-    actionLabel: 'Take Wicks & Seeds',
+    title: 'Collect Wicks, Soil/LECA & Seeds',
+    instruction: 'Pick up the cotton Capillary Wicks and Soil/LECA caddy from the East counter.',
+    actionLabel: 'Take Wicks & Soil',
     targetZone: 'wick_station',
-    scienceNote: 'Porous expanded clay (LECA) holds air pockets around roots while braided cotton wicks draw water upward.',
+    scienceNote: 'Porous expanded clay (LECA) and light potting mix hold oxygen around roots while braided cotton wicks draw water upward.',
     gradeNotes: {
-      '4-6': 'Cotton wicks drink water upward like a paper towel, while clay pebbles give plant roots air to breathe.',
+      '4-6': 'Cotton wicks drink water upward like a straw, while clay pebbles give plant roots air to breathe.',
       '7-9': 'Porous LECA clay balls trap oxygen around roots while cotton fibers pull moisture up from the reservoir.',
       '10-12': 'Expanded clay (LECA) provides aerobic pore spaces while braided cellulose fibers create narrow capillary conduits.',
     },
@@ -110,22 +116,22 @@ export const BUILD_STEPS: Record<BuildStepId, StepDefinition> = {
     id: 'THREAD_WICKS_AND_PLANT',
     stepNumber: 6,
     totalSteps: 8,
-    title: 'Thread Wicks & Pack Substrate',
-    instruction: 'At the workbench, drop cotton wicks into the PVC channel, pack LECA/soil, and sow seeds.',
-    actionLabel: 'Install Wicks & Seeds',
+    title: 'Thread Wicks & Pack Soil',
+    instruction: 'At the workbench, drop cotton wicks into the PVC channel and pack soil/LECA.',
+    actionLabel: 'Install Wicks & Soil',
     targetZone: 'workbench',
-    scienceNote: 'Adhesion and cohesion inside narrow cotton fibers pull water upward against gravity via capillary action.',
+    scienceNote: 'Adhesion and cohesion inside narrow cotton fibers pull water upward across the root air gap via capillary action.',
     gradeNotes: {
-      '4-6': 'Dropping each cotton wick to the bottom of the pipe lets it reach water and carry it up to the seeds.',
-      '7-9': 'Adhesion to cotton fibers and water cohesion work together to lift water upward against gravity.',
-      '10-12': 'Capillary rise h = 2γ cosθ / (ρgr) draws reservoir water up through micro-capillaries to hydrate the root substrate.',
+      '4-6': 'The cup stays above the water so roots can breathe, while the cotton wick reaches down to pull water up.',
+      '7-9': 'Leaving an oxygen air gap under the cup prevents root rot while capillary adhesion lifts water up the wick.',
+      '10-12': 'Capillary rise h = 2γ cosθ / (ρgr) lifts water across the oxygenated air gap at the exact rate plants transpire.',
     },
   },
   FILL_AT_SINK: {
     id: 'FILL_AT_SINK',
     stepNumber: 7,
     totalSteps: 8,
-    title: 'Fill Reservoir Pitcher at Sink',
+    title: 'Fill Pitcher at Kitchen Sink',
     instruction: 'Walk to the kitchen sink basin and fill the water pitcher under the gooseneck faucet.',
     actionLabel: 'Turn On Tap & Fill',
     targetZone: 'sink',
@@ -140,14 +146,14 @@ export const BUILD_STEPS: Record<BuildStepId, StepDefinition> = {
     id: 'POUR_AND_GROW',
     stepNumber: 8,
     totalSteps: 8,
-    title: 'Pour Water & Stabilize Reservoir',
-    instruction: 'Return to the workbench and pour water into the PVC fill riser to stabilize the reservoir.',
-    actionLabel: 'Pour Water & Grow',
+    title: 'Test Wicking & Stabilize Water',
+    instruction: 'Return to the workbench and pour water into the PVC riser to prime capillary action.',
+    actionLabel: 'Prime & Test Pipe',
     targetZone: 'workbench',
-    scienceNote: 'Gravity levels water across the PVC channel, then capillary wicking hydrates the substrate and grows greens.',
+    scienceNote: 'Gravity levels water across the PVC channel, then capillary wicking hydrates the soil above the air gap.',
     gradeNotes: {
-      '4-6': 'Gravity spreads the water evenly down the pipe, and the cotton wicks feed the sprouts automatically.',
-      '7-9': 'Hydrostatic pressure equalizes the waterline across the manifold, priming all four wicks at once.',
+      '4-6': 'Gravity spreads the water evenly down the pipe, and the cotton wicks feed the soil automatically.',
+      '7-9': 'Hydrostatic pressure equalizes the waterline across the manifold, priming all four cotton wicks evenly.',
       '10-12': 'Pascal equilibrium stabilizes the hydrostatic head across the horizontal channel, sustaining passive transpiration-driven uptake.',
     },
   },
@@ -155,15 +161,15 @@ export const BUILD_STEPS: Record<BuildStepId, StepDefinition> = {
     id: 'COMPLETE',
     stepNumber: 8,
     totalSteps: 8,
-    title: 'Off-Grid Garden Thriving',
-    instruction: 'Toggle Cutaway X-Ray to inspect water level stabilization and capillary wicking sustaining growth.',
-    actionLabel: 'Toggle Cutaway X-Ray',
-    targetZone: 'workbench',
+    title: 'Pipe Ready · Exit to Garden',
+    instruction: 'Walk out the South Garden Exit Door to mount this PVC pipe on your vertical rack!',
+    actionLabel: 'Go to Garden Yard',
+    targetZone: 'garden_exit',
     scienceNote: 'Capillary wicking delivers moisture only as fast as the plant transpires, preventing overwatering and waste.',
     gradeNotes: {
-      '4-6': 'Your zero-electricity garden keeps itself watered! Toggle Cutaway to peek at the water and cotton wicks inside.',
-      '7-9': 'Cutaway view shows the stabilized waterline and steady capillary wicking feeding all four greens without power.',
-      '10-12': 'Self-regulating capillary flux matches plant transpiration demand—delivering resilient off-grid nutrition with 0 W draw.',
+      '4-6': 'Your self-watering PVC pipe is ready! Head out the Garden Door behind you to place it on your rack.',
+      '7-9': 'Pipe complete! Step through the Garden Exit Door to mount this tier on your vertical stand and pick seeds.',
+      '10-12': 'PVC manifold primed and verified. Exit to the Garden Yard to deploy onto your multi-tier vertical rack.',
     },
   },
 };

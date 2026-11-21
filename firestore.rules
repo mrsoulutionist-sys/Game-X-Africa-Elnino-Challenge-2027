@@ -1,0 +1,141 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidFarmerKey(key) {
+      return key is string && key.size() == 64 && key.matches('^[a-f0-9]{64}$');
+    }
+
+    function isValidTierList(tiers) {
+      return tiers is list
+        && tiers.size() <= 6
+        && (
+          tiers.size() == 0
+          || (
+            tiers[0] is map
+            && tiers[0].keys().hasOnly([
+              'tierIndex',
+              'pipeInstalled',
+              'cropId',
+              'plantedAtMs',
+              'wateredAtMs',
+              'waterDurationHours',
+              'harvested'
+            ])
+          )
+        );
+    }
+
+    function isValidOptionalResilienceFields(data) {
+      return (!('jojoInstalled' in data) || data.jojoInstalled is bool)
+        && (!('jojoLitres' in data) || (data.jojoLitres is number && data.jojoLitres >= 0 && data.jojoLitres <= 500))
+        && (!('jojoCapacity' in data) || (data.jojoCapacity is number && data.jojoCapacity >= 20 && data.jojoCapacity <= 500))
+        && (!('shadeClothInstalled' in data) || data.shadeClothInstalled is bool)
+        && (!('weatherMode' in data) || data.weatherMode in ['normal', 'elnino_watch', 'heatwave'])
+        && (!('litresSaved' in data) || (data.litresSaved is number && data.litresSaved >= 0 && data.litresSaved <= 1000000))
+        && (!('foodServings' in data) || (data.foodServings is int && data.foodServings >= 0 && data.foodServings <= 1000000));
+    }
+
+    function isValidFarmerDoc(data, pathKey) {
+      return data.keys().hasAll([
+          'farmerKey',
+          'farmerName',
+          'activeZone',
+          'kitchenStep',
+          'rackSize',
+          'tiers',
+          'totalHarvestedCount',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'farmerKey',
+          'farmerName',
+          'activeZone',
+          'kitchenStep',
+          'rackSize',
+          'tiers',
+          'totalHarvestedCount',
+          'jojoInstalled',
+          'jojoLitres',
+          'jojoCapacity',
+          'shadeClothInstalled',
+          'weatherMode',
+          'litresSaved',
+          'foodServings',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.farmerKey is string
+        && data.farmerKey == pathKey
+        && data.farmerName is string
+        && data.farmerName.size() >= 1
+        && data.farmerName.size() <= 40
+        && data.activeZone in ['kitchen', 'garden']
+        && data.kitchenStep is string
+        && data.kitchenStep.size() >= 3
+        && data.kitchenStep.size() <= 40
+        && data.rackSize is int
+        && data.rackSize >= 2
+        && data.rackSize <= 6
+        && isValidTierList(data.tiers)
+        && data.totalHarvestedCount is int
+        && data.totalHarvestedCount >= 0
+        && data.totalHarvestedCount <= 100000
+        && isValidOptionalResilienceFields(data)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Connection probe document (single get only, no list or writes)
+    match /test/connection {
+      allow get: if request.time != null;
+      allow list, write: if false;
+    }
+
+    // Farmer profiles keyed by SHA-256(farmerName + passcode)
+    match /farmers/{farmerKey} {
+      allow get: if isValidFarmerKey(farmerKey);
+      allow list: if false;
+      allow create: if isValidFarmerKey(farmerKey)
+        && isValidFarmerDoc(incoming(), farmerKey)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidFarmerKey(farmerKey)
+        && isValidFarmerDoc(incoming(), farmerKey)
+        && incoming().farmerKey == existing().farmerKey
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'farmerName',
+          'activeZone',
+          'kitchenStep',
+          'rackSize',
+          'tiers',
+          'totalHarvestedCount',
+          'jojoInstalled',
+          'jojoLitres',
+          'jojoCapacity',
+          'shadeClothInstalled',
+          'weatherMode',
+          'litresSaved',
+          'foodServings',
+          'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+  }
+}

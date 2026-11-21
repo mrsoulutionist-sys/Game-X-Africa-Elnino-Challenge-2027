@@ -1,6 +1,13 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import type { ActiveZone } from '../firebase/firebaseClient';
 import { workshopAudio } from './audio';
+import type { TierSaveState } from './crops';
+import {
+  buildGardenYard,
+  type GardenResilienceState,
+  type GardenYardHandle,
+} from './gardenYardBuilder';
 import { buildHydroponicRig, type HydroponicRigHandle } from './hydroponicRigBuilder';
 import { buildKitchenWorkshopRoom, type AABB, type KitchenRoomHandle } from './kitchenRoomBuilder';
 import { createWorkshopMaterials, type WorkshopMaterials } from './materials';
@@ -8,6 +15,7 @@ import { BUILD_STEPS, type BuildStepId, type GradeTier, type ToolId } from './st
 import { workshopVoiceover } from './voiceover';
 
 export interface WorkshopHudState {
+  activeZone: ActiveZone;
   stepId: BuildStepId;
   toolId: ToolId;
   inRange: boolean;
@@ -20,6 +28,7 @@ export interface WorkshopHudState {
   subProgress: number;
   completedSubSteps: number;
   totalSubSteps: number;
+  gardenTarget: 'rack' | 'jojo' | 'weather' | 'kitchen_door' | null;
 }
 
 const ROOM_BOUNDS = {
@@ -28,13 +37,28 @@ const ROOM_BOUNDS = {
   minZ: -4.05,
   maxZ: 3.9,
 };
+
+const GARDEN_BOUNDS = {
+  minX: -4.45,
+  maxX: 4.45,
+  minZ: -3.95,
+  maxZ: 4.05,
+};
+
 const PLAYER_EYE_Y = 1.62;
 const PLAYER_RADIUS = 0.34;
 const WALK_SPEED = 3.05;
 
+export interface SceneCallbacks {
+  onHudChange: (state: WorkshopHudState) => void;
+  onKitchenStepPersisted: (step: BuildStepId) => void;
+  onZoneChanged: (zone: ActiveZone) => void;
+  onOpenRackManager: () => void;
+}
+
 export class KitchenWorkshopScene {
   private container: HTMLElement;
-  private onStateChange: (state: WorkshopHudState) => void;
+  private callbacks: SceneCallbacks;
 
   private renderer!: THREE.WebGLRenderer;
   private scene!: THREE.Scene;
@@ -44,6 +68,7 @@ export class KitchenWorkshopScene {
   private mats!: WorkshopMaterials;
   private room!: KitchenRoomHandle;
   private rig!: HydroponicRigHandle;
+  private garden!: GardenYardHandle;
 
   private isSoftwareGl = false;
   private disposed = false;
@@ -61,12 +86,21 @@ export class KitchenWorkshopScene {
   private actionHeld = false;
 
   // Workflow state
+  private activeZone: ActiveZone = 'kitchen';
   private stepId: BuildStepId = 'GET_SAW';
   private toolId: ToolId = 'none';
   private isBusy = false;
   private isFillingSink = false;
   private cutawayMode = false;
   private busyTimeoutId: number | null = null;
+  private gardenTarget: 'rack' | 'jojo' | 'weather' | 'kitchen_door' | null = null;
+  private resilience: GardenResilienceState = {
+    jojoInstalled: false,
+    jojoLitres: 18,
+    jojoCapacity: 60,
+    shadeClothInstalled: false,
+    weatherMode: 'normal',
+  };
 
   // Manual reticle aiming state
   private alignedTargetIndex: number | null = null;
@@ -79,8 +113,9 @@ export class KitchenWorkshopScene {
   private lastAligned = false;
   private lastCompletedSub = -1;
   private lastEmittedProgress = -1;
+  private lastGardenTarget: 'rack' | 'jojo' | 'weather' | 'kitchen_door' | null = null;
 
-  // Pre-allocated math helpers (zero per-frame allocations)
+  // Pre-allocated math helpers
   private readonly forwardVec = new THREE.Vector3();
   private readonly rightVec = new THREE.Vector3();
   private readonly moveVec = new THREE.Vector3();
@@ -88,15 +123,14 @@ export class KitchenWorkshopScene {
   private readonly centerNdc = new THREE.Vector2(0, 0);
   private readonly ndcPointer = new THREE.Vector2();
 
-  constructor(container: HTMLElement, onStateChange: (state: WorkshopHudState) => void) {
+  constructor(container: HTMLElement, callbacks: SceneCallbacks) {
     this.container = container;
-    this.onStateChange = onStateChange;
+    this.callbacks = callbacks;
 
     this.initRenderer();
     this.initScene();
     this.bindEvents();
     this.emitState(true);
-    workshopVoiceover.speakStep('GET_SAW', true);
     this.startLoop();
   }
 
@@ -154,7 +188,7 @@ export class KitchenWorkshopScene {
 
     const w = this.container.clientWidth || window.innerWidth;
     const h = this.container.clientHeight || window.innerHeight;
-    this.camera = new THREE.PerspectiveCamera(62, w / Math.max(1, h), 0.08, 40);
+    this.camera = new THREE.PerspectiveCamera(62, w / Math.max(1, h), 0.08, 45);
     this.camera.rotation.order = 'YXZ';
     this.camera.position.set(0, PLAYER_EYE_Y, 2.35);
     this.camera.rotation.y = this.yaw;
@@ -166,22 +200,22 @@ export class KitchenWorkshopScene {
     this.scene.environment = this.envRenderTarget.texture;
     roomEnv.dispose();
 
-    const hemi = new THREE.HemisphereLight(0xdff0ff, 0x6f5a46, 0.72);
+    const hemi = new THREE.HemisphereLight(0xdff0ff, 0x6f5a46, 0.78);
     this.scene.add(hemi);
 
     const sunLight = new THREE.DirectionalLight(0xfff5e4, 1.35);
-    sunLight.position.set(-1.9, 3.8, -5.2);
+    sunLight.position.set(-1.9, 4.2, -5.2);
     sunLight.target.position.set(0, 0.9, 0);
     this.scene.add(sunLight.target);
     if (!this.isSoftwareGl) {
       sunLight.castShadow = true;
       sunLight.shadow.mapSize.set(1024, 1024);
       sunLight.shadow.camera.near = 0.5;
-      sunLight.shadow.camera.far = 14;
-      sunLight.shadow.camera.left = -4.5;
-      sunLight.shadow.camera.right = 4.5;
-      sunLight.shadow.camera.top = 4.5;
-      sunLight.shadow.camera.bottom = -4.5;
+      sunLight.shadow.camera.far = 16;
+      sunLight.shadow.camera.left = -5;
+      sunLight.shadow.camera.right = 5;
+      sunLight.shadow.camera.top = 5;
+      sunLight.shadow.camera.bottom = -5;
       sunLight.shadow.bias = -0.0005;
     }
     this.scene.add(sunLight);
@@ -192,7 +226,7 @@ export class KitchenWorkshopScene {
       this.scene.add(pLight);
     });
 
-    const fillLight = new THREE.DirectionalLight(0xd9e8f5, 0.45);
+    const fillLight = new THREE.DirectionalLight(0xd9e8f5, 0.5);
     fillLight.position.set(2.5, 2.8, 3.6);
     this.scene.add(fillLight);
 
@@ -203,6 +237,10 @@ export class KitchenWorkshopScene {
 
     this.rig = buildHydroponicRig(this.mats);
     this.scene.add(this.rig.group);
+
+    this.garden = buildGardenYard(this.mats, maxAniso);
+    this.garden.group.visible = false;
+    this.scene.add(this.garden.group);
   }
 
   private bindEvents(): void {
@@ -229,6 +267,10 @@ export class KitchenWorkshopScene {
   };
 
   private handleKeyDown = (e: KeyboardEvent): void => {
+    // Do not intercept keys while typing inside farmer login inputs
+    const tag = (e.target as HTMLElement | null)?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
     workshopAudio.unlock();
     workshopVoiceover.unlockAndSpeakPending();
     const code = e.code;
@@ -236,9 +278,9 @@ export class KitchenWorkshopScene {
 
     if (code === 'KeyE' || code === 'Space') {
       e.preventDefault();
-      if (this.isManualAimStep()) {
+      if (this.activeZone === 'kitchen' && this.isManualAimStep()) {
         this.actionHeld = true;
-      } else if (!e.repeat && (this.checkInRange() || this.stepId === 'COMPLETE')) {
+      } else if (!e.repeat) {
         this.triggerCurrentAction();
       }
     }
@@ -261,6 +303,127 @@ export class KitchenWorkshopScene {
     this.startLoop();
   };
 
+  // Hydration from Firestore Farmer Profile
+  public applySavedProfile(
+    zone: ActiveZone,
+    kitchenStep: BuildStepId,
+    rackSize: number,
+    tiers: TierSaveState[],
+    announce: boolean,
+    resilience?: GardenResilienceState
+  ): void {
+    this.stepId = kitchenStep;
+    if (resilience) {
+      this.resilience = resilience;
+    }
+    this.toolId =
+      kitchenStep === 'CUT_AND_ASSEMBLE_PVC'
+        ? 'hacksaw'
+        : kitchenStep === 'DRILL_PORTS'
+          ? 'drill'
+          : kitchenStep === 'THREAD_WICKS_AND_PLANT'
+            ? 'wicks'
+            : kitchenStep === 'FILL_AT_SINK'
+              ? 'pitcher_empty'
+              : kitchenStep === 'POUR_AND_GROW'
+                ? 'pitcher_full'
+                : 'none';
+
+    this.room.setActiveStepVisuals(this.stepId, false);
+    this.rig.setStepState(this.stepId, this.cutawayMode);
+    this.garden.setGardenState(rackSize, tiers, this.cutawayMode, this.resilience);
+    this.switchZone(zone, false);
+    this.emitState(true);
+
+    if (announce) {
+      if (zone === 'kitchen') {
+        workshopVoiceover.speakStep(this.stepId, true);
+      } else {
+        workshopVoiceover.speakCustom(
+          'Welcome back to your Outdoor Garden Yard! Inspect your vertical rack, JoJo rainwater tank, and El Niño forecast station.'
+        );
+      }
+    }
+  }
+
+  public syncGardenTiers(
+    rackSize: number,
+    tiers: TierSaveState[],
+    resilience?: GardenResilienceState
+  ): void {
+    if (resilience) {
+      this.resilience = resilience;
+      if (this.activeZone === 'garden') {
+        this.applyGardenAtmosphere();
+      }
+    }
+    this.garden.setGardenState(rackSize, tiers, this.cutawayMode, this.resilience);
+  }
+
+  private applyGardenAtmosphere(): void {
+    const skyHex =
+      this.resilience.weatherMode === 'heatwave'
+        ? 0xd69f6e
+        : this.resilience.weatherMode === 'elnino_watch'
+          ? 0xb6c5c2
+          : 0x87c3e8;
+    this.scene.background = new THREE.Color(skyHex);
+    this.scene.fog = new THREE.FogExp2(skyHex, this.resilience.weatherMode === 'heatwave' ? 0.032 : 0.024);
+  }
+
+  public switchZone(zone: ActiveZone, persist = true): void {
+    this.activeZone = zone;
+    const isKitchen = zone === 'kitchen';
+
+    this.room.group.visible = isKitchen;
+    this.rig.group.visible = isKitchen;
+    this.garden.group.visible = !isKitchen;
+
+    if (isKitchen) {
+      this.scene.background = new THREE.Color(0x212830);
+      this.scene.fog = null;
+      this.camera.position.set(0, PLAYER_EYE_Y, 2.35);
+      this.yaw = 0;
+      this.pitch = -0.15;
+    } else {
+      this.applyGardenAtmosphere();
+      this.camera.position.set(0, PLAYER_EYE_Y, 2.3);
+      this.yaw = 0;
+      this.pitch = -0.12;
+    }
+
+    this.camera.rotation.y = this.yaw;
+    this.camera.rotation.x = this.pitch;
+    this.actionHeld = false;
+    this.emitState(true);
+
+    if (persist) {
+      this.callbacks.onZoneChanged(zone);
+    }
+  }
+
+  public startNewPipeInKitchen(): void {
+    this.stepId = 'GET_SAW';
+    this.toolId = 'none';
+    this.isBusy = false;
+    this.isFillingSink = false;
+    this.room.setActiveStepVisuals('GET_SAW', false);
+    this.rig.setStepState('GET_SAW', this.cutawayMode);
+    this.switchZone('kitchen', true);
+    this.callbacks.onKitchenStepPersisted('GET_SAW');
+    workshopVoiceover.speakStep('GET_SAW', false);
+  }
+
+  public clearCompletedPipeSilently(): void {
+    this.stepId = 'GET_SAW';
+    this.toolId = 'none';
+    this.isBusy = false;
+    this.isFillingSink = false;
+    this.room.setActiveStepVisuals('GET_SAW', false);
+    this.rig.setStepState('GET_SAW', this.cutawayMode);
+    this.emitState(true);
+  }
+
   public setThumbstickInput(x: number, y: number): void {
     workshopVoiceover.unlockAndSpeakPending();
     this.stickX = x;
@@ -282,7 +445,7 @@ export class KitchenWorkshopScene {
       workshopVoiceover.unlockAndSpeakPending();
     }
     this.actionHeld = held;
-    if (held && !this.isManualAimStep()) {
+    if (held && (this.activeZone === 'garden' || !this.isManualAimStep())) {
       this.triggerCurrentAction();
     }
   }
@@ -290,6 +453,16 @@ export class KitchenWorkshopScene {
   public tryInteractAtScreenPoint(clientX: number, clientY: number): void {
     workshopAudio.unlock();
     workshopVoiceover.unlockAndSpeakPending();
+
+    if (this.activeZone === 'garden') {
+      if (this.gardenTarget === 'kitchen_door') {
+        this.switchZone('kitchen', true);
+      } else if (this.gardenTarget !== null) {
+        this.callbacks.onOpenRackManager();
+      }
+      return;
+    }
+
     if (this.isManualAimStep()) return;
 
     const rect = this.renderer.domElement.getBoundingClientRect();
@@ -303,6 +476,19 @@ export class KitchenWorkshopScene {
     if (hits.length === 0) return;
 
     const hitZone = hits[0].object.userData.targetZone as string | undefined;
+    if (hitZone === 'garden_exit') {
+      const exitAnchor = this.room.targetZones.garden_exit;
+      if (
+        Math.hypot(
+          this.camera.position.x - exitAnchor.position.x,
+          this.camera.position.z - exitAnchor.position.z
+        ) <= exitAnchor.interactRadius
+      ) {
+        this.switchZone('garden', true);
+        return;
+      }
+    }
+
     const activeZone = BUILD_STEPS[this.stepId].targetZone;
     if (hitZone === activeZone && this.checkInRange()) {
       this.triggerCurrentAction();
@@ -317,13 +503,19 @@ export class KitchenWorkshopScene {
   public replayVoiceover(): void {
     workshopAudio.unlock();
     workshopVoiceover.unlockAndSpeakPending();
+    if (this.activeZone === 'garden') {
+      workshopVoiceover.speakCustom(
+        'Here in the Garden Yard, choose a 2 to 6 tier stand, deploy each PVC pipe you fabricate, plant from 10 El Niño-resilient seeds, and check back anytime as your crops grow!'
+      );
+      return;
+    }
     workshopVoiceover.speakStep(this.stepId, false);
   }
 
   public setCutawayMode(enabled: boolean): void {
     this.cutawayMode = enabled;
     this.rig.setStepState(this.stepId, this.cutawayMode);
-    if (enabled && this.stepId === 'COMPLETE') {
+    if (enabled && (this.stepId === 'COMPLETE' || this.stepId === 'POUR_AND_GROW')) {
       workshopVoiceover.speakCutawayInsight();
     }
     this.emitState(true);
@@ -338,36 +530,31 @@ export class KitchenWorkshopScene {
       window.clearTimeout(this.busyTimeoutId);
       this.busyTimeoutId = null;
     }
-    this.stepId = 'GET_SAW';
-    this.toolId = 'none';
-    this.isBusy = false;
-    this.isFillingSink = false;
-    this.cutawayMode = false;
-    this.actionHeld = false;
-    this.alignedTargetIndex = null;
-    this.subProgress = 0;
-    this.completedSubSteps = 0;
-    this.totalSubSteps = 0;
-
-    this.camera.position.set(0, PLAYER_EYE_Y, 2.35);
-    this.yaw = 0;
-    this.pitch = -0.15;
-    this.camera.rotation.y = this.yaw;
-    this.camera.rotation.x = this.pitch;
-
-    this.room.setActiveStepVisuals(this.stepId, false);
-    this.rig.setStepState(this.stepId, false);
-    this.emitState(true);
-    workshopVoiceover.speakStep('GET_SAW', false);
+    this.startNewPipeInKitchen();
   }
 
   public triggerCurrentAction(): void {
-    if (this.isBusy || this.isManualAimStep()) return;
+    if (this.isBusy) return;
     workshopAudio.unlock();
     workshopVoiceover.unlockAndSpeakPending();
 
+    if (this.activeZone === 'garden') {
+      if (this.gardenTarget === 'kitchen_door') {
+        this.switchZone('kitchen', true);
+      } else {
+        this.callbacks.onOpenRackManager();
+      }
+      return;
+    }
+
+    if (this.isManualAimStep()) return;
+
     if (this.stepId === 'COMPLETE') {
-      this.toggleCutawayMode();
+      if (this.checkInRange()) {
+        this.switchZone('garden', true);
+      } else {
+        this.toggleCutawayMode();
+      }
       return;
     }
 
@@ -457,11 +644,14 @@ export class KitchenWorkshopScene {
     this.room.setActiveStepVisuals(this.stepId, this.isFillingSink);
     this.rig.setStepState(this.stepId, this.cutawayMode);
     this.emitState(true);
+    this.callbacks.onKitchenStepPersisted(next);
     workshopVoiceover.speakStep(next, false);
   }
 
   private checkInRange(): boolean {
-    if (this.stepId === 'COMPLETE') return true;
+    if (this.activeZone === 'garden') {
+      return this.gardenTarget !== null;
+    }
     const zoneId = BUILD_STEPS[this.stepId].targetZone;
     const anchor = this.room.targetZones[zoneId];
     const dx = this.camera.position.x - anchor.position.x;
@@ -469,8 +659,42 @@ export class KitchenWorkshopScene {
     return Math.hypot(dx, dz) <= anchor.interactRadius;
   }
 
+  private updateGardenProximity(): void {
+    if (this.activeZone !== 'garden') {
+      this.gardenTarget = null;
+      return;
+    }
+    const distRack = Math.hypot(
+      this.camera.position.x - this.garden.rackAnchor.x,
+      this.camera.position.z - this.garden.rackAnchor.z
+    );
+    const distJojo = Math.hypot(
+      this.camera.position.x - this.garden.jojoAnchor.x,
+      this.camera.position.z - this.garden.jojoAnchor.z
+    );
+    const distWeather = Math.hypot(
+      this.camera.position.x - this.garden.weatherAnchor.x,
+      this.camera.position.z - this.garden.weatherAnchor.z
+    );
+    const distDoor = Math.hypot(
+      this.camera.position.x - this.garden.kitchenDoorAnchor.x,
+      this.camera.position.z - this.garden.kitchenDoorAnchor.z
+    );
+    if (distDoor <= 2.1) {
+      this.gardenTarget = 'kitchen_door';
+    } else if (distJojo <= 2.35) {
+      this.gardenTarget = 'jojo';
+    } else if (distWeather <= 2.35) {
+      this.gardenTarget = 'weather';
+    } else if (distRack <= 3.1) {
+      this.gardenTarget = 'rack';
+    } else {
+      this.gardenTarget = null;
+    }
+  }
+
   private updateManualAimAndTool(dt: number): void {
-    if (!this.isManualAimStep()) {
+    if (this.activeZone !== 'kitchen' || !this.isManualAimStep()) {
       this.alignedTargetIndex = null;
       this.subProgress = 0;
       return;
@@ -519,6 +743,7 @@ export class KitchenWorkshopScene {
       inRange === this.lastInRange &&
       reticleAligned === this.lastAligned &&
       this.completedSubSteps === this.lastCompletedSub &&
+      this.gardenTarget === this.lastGardenTarget &&
       !progressChanged
     ) {
       return;
@@ -528,24 +753,39 @@ export class KitchenWorkshopScene {
     this.lastAligned = reticleAligned;
     this.lastCompletedSub = this.completedSubSteps;
     this.lastEmittedProgress = this.subProgress;
+    this.lastGardenTarget = this.gardenTarget;
 
     const stepDef = BUILD_STEPS[this.stepId];
     const cutawayAvailable =
-      this.stepId !== 'GET_SAW' && this.stepId !== 'CUT_AND_ASSEMBLE_PVC';
+      this.activeZone === 'garden' ||
+      (this.stepId !== 'GET_SAW' && this.stepId !== 'CUT_AND_ASSEMBLE_PVC');
 
-    this.onStateChange({
+    const targetLabel =
+      this.activeZone === 'garden'
+        ? this.gardenTarget === 'kitchen_door'
+          ? 'Enter Kitchen Lab'
+          : this.gardenTarget === 'jojo'
+            ? 'JoJo Rain Tank'
+            : this.gardenTarget === 'weather'
+              ? 'El Niño Forecast'
+              : 'Manage Rack & Crops'
+        : this.room.targetZones[stepDef.targetZone].label;
+
+    this.callbacks.onHudChange({
+      activeZone: this.activeZone,
       stepId: this.stepId,
       toolId: this.toolId,
       inRange,
       isBusy: this.isBusy,
       cutawayMode: this.cutawayMode,
       cutawayAvailable,
-      targetLabel: this.room.targetZones[stepDef.targetZone].label,
-      manualAimMode: this.isManualAimStep(),
+      targetLabel,
+      manualAimMode: this.activeZone === 'kitchen' && this.isManualAimStep(),
       reticleAligned,
       subProgress: this.subProgress,
       completedSubSteps: this.completedSubSteps,
       totalSubSteps: this.totalSubSteps,
+      gardenTarget: this.gardenTarget,
     });
   }
 
@@ -567,6 +807,9 @@ export class KitchenWorkshopScene {
 
     if (mag < 0.01) return;
 
+    const bounds = this.activeZone === 'kitchen' ? ROOM_BOUNDS : GARDEN_BOUNDS;
+    const colliders = this.activeZone === 'kitchen' ? this.room.colliders : this.garden.colliders;
+
     this.forwardVec.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
     this.rightVec.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
 
@@ -577,19 +820,19 @@ export class KitchenWorkshopScene {
 
     const nextX = THREE.MathUtils.clamp(
       this.camera.position.x + this.moveVec.x,
-      ROOM_BOUNDS.minX,
-      ROOM_BOUNDS.maxX
+      bounds.minX,
+      bounds.maxX
     );
-    if (!this.collidesAny(nextX, this.camera.position.z, this.room.colliders)) {
+    if (!this.collidesAny(nextX, this.camera.position.z, colliders)) {
       this.camera.position.x = nextX;
     }
 
     const nextZ = THREE.MathUtils.clamp(
       this.camera.position.z + this.moveVec.z,
-      ROOM_BOUNDS.minZ,
-      ROOM_BOUNDS.maxZ
+      bounds.minZ,
+      bounds.maxZ
     );
-    if (!this.collidesAny(this.camera.position.x, nextZ, this.room.colliders)) {
+    if (!this.collidesAny(this.camera.position.x, nextZ, colliders)) {
       this.camera.position.z = nextZ;
     }
   }
@@ -668,9 +911,14 @@ export class KitchenWorkshopScene {
     this.worldTime += dt;
 
     this.updateMovement(dt);
-    this.updateManualAimAndTool(dt);
-    this.room.update(this.worldTime, this.isFillingSink);
-    this.rig.update(dt, this.worldTime);
+    if (this.activeZone === 'kitchen') {
+      this.updateManualAimAndTool(dt);
+      this.room.update(this.worldTime, this.isFillingSink);
+      this.rig.update(dt, this.worldTime);
+    } else {
+      this.updateGardenProximity();
+      this.garden.update(this.worldTime, Date.now());
+    }
     this.emitState(false);
 
     this.renderer.render(this.scene, this.camera);
@@ -695,6 +943,7 @@ export class KitchenWorkshopScene {
 
     this.room.dispose();
     this.rig.dispose();
+    this.garden.dispose();
     this.mats.dispose();
     this.envRenderTarget.dispose();
     this.pmremGenerator.dispose();

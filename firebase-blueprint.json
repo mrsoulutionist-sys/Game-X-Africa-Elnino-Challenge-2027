@@ -1,0 +1,105 @@
+{
+  "entities": {
+    "FarmerProfile": {
+      "title": "FarmerProfile",
+      "description": "Persistent profile, workshop step, vertical rack configuration, deployed hydroponic tiers, and El Nino drought resilience metrics for a student farmer.",
+      "type": "object",
+      "properties": {
+        "farmerKey": {
+          "type": "string",
+          "description": "Deterministic SHA-256 hex digest derived from normalized farmerName and passcode.",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "farmerName": {
+          "type": "string",
+          "description": "Display name chosen by the learner.",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "activeZone": {
+          "type": "string",
+          "description": "Current area the farmer is standing in.",
+          "enum": ["kitchen", "garden"]
+        },
+        "kitchenStep": {
+          "type": "string",
+          "description": "Current fabrication step inside the kitchen workshop.",
+          "minLength": 3,
+          "maxLength": 40
+        },
+        "rackSize": {
+          "type": "integer",
+          "description": "Selected vertical rack stand capacity (2 to 6 PVC pipe tiers)."
+        },
+        "tiers": {
+          "type": "array",
+          "description": "Bounded list (max 6) of deployed PVC tiers, planted crop IDs, and planting/watering timestamps."
+        },
+        "totalHarvestedCount": {
+          "type": "integer",
+          "description": "Total number of crops harvested across sessions."
+        },
+        "jojoInstalled": {
+          "type": "boolean",
+          "description": "Whether the farmer has crafted the outdoor JoJo rainwater harvesting tank."
+        },
+        "jojoLitres": {
+          "type": "number",
+          "description": "Remaining stored water in litres inside the JoJo rainwater tank."
+        },
+        "jojoCapacity": {
+          "type": "number",
+          "description": "Maximum storage capacity in litres of the JoJo rainwater tank."
+        },
+        "shadeClothInstalled": {
+          "type": "boolean",
+          "description": "Whether the 40% agricultural shade-cloth canopy is installed over the vertical rack."
+        },
+        "weatherMode": {
+          "type": "string",
+          "description": "Current simulated El Nino weather forecast phase.",
+          "enum": ["normal", "elnino_watch", "heatwave"]
+        },
+        "litresSaved": {
+          "type": "number",
+          "description": "Cumulative water saved in litres compared to conventional open-soil gardening."
+        },
+        "foodServings": {
+          "type": "integer",
+          "description": "Total fresh household food servings produced from harvested tiers."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when farmer profile was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest saved state."
+        }
+      },
+      "required": [
+        "farmerKey",
+        "farmerName",
+        "activeZone",
+        "kitchenStep",
+        "rackSize",
+        "tiers",
+        "totalHarvestedCount",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/farmers/{farmerKey}": {
+      "schema": {
+        "$ref": "#/entities/FarmerProfile"
+      },
+      "description": "Stores each farmer's persistent kitchen fabrication progress, vertical rack size, timestamped tier crops, and El Nino drought resilience metrics."
+    }
+  }
+}

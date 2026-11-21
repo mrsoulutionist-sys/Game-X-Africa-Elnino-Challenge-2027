@@ -10,11 +10,11 @@ type VoiceoverListener = (state: VoiceoverState) => void;
 
 const INTRO_NARRATION: Record<GradeTier, string> = {
   '4-6':
-    'Aha! Welcome to The El Niño Challenge! When power goes out, we can still grow fresh food with zero electricity. Grab the hacksaw on the West counter!',
+    'Aha! Welcome to The El Niño Challenge! When droughts and power cuts hit, we can still grow fresh food with zero electricity. Grab the hacksaw on the West counter!',
   '7-9':
-    'Greetings, young engineer! Welcome to the Game X Africa Lab for The El Niño Challenge. Let us build a passive hydroponic garden with zero electricity—start by grabbing the hacksaw on the West counter.',
+    'Greetings, young engineer! Welcome to the Game X Africa Lab for The El Niño Challenge. Let us build a self-watering PVC garden—start by grabbing the hacksaw on the West counter.',
   '10-12':
-    'Welcome to The El Niño Challenge by Game X Africa. To protect off-grid food security without pumps or power, we will engineer a capillary PVC garden. Pick up the hacksaw on the West counter.',
+    'Welcome to The El Niño Challenge by Game X Africa. To safeguard food security when outdoor crops fail, fabricate passive capillary PVC tiers. Pick up the hacksaw on the West counter.',
 };
 
 const STEP_NARRATION: Record<BuildStepId, string> = {
@@ -22,23 +22,23 @@ const STEP_NARRATION: Record<BuildStepId, string> = {
   CUT_AND_ASSEMBLE_PVC:
     'Bring that hacksaw to the island workbench! Aim your center reticle at each glowing mark on the PVC pipe and hold to saw it cleanly.',
   GET_DRILL:
-    'Magnificent cuts! Now head to the North-East counter and equip the cordless drill with the hole-saw bit.',
+    'Magnificent cuts! Now walk to the North-East counter and equip the cordless drill with the hole-saw bit.',
   DRILL_PORTS:
     'Line up your reticle with each of the four marks along the top of the PVC pipe and hold to bore every planting port yourself.',
   GET_WICKS:
-    'Splendid precision! Grab the cotton capillary wicks, LECA clay pebbles, and seeds from the East counter.',
+    'Splendid precision! Grab the braided cotton capillary wicks and porous soil caddy from the East counter.',
   THREAD_WICKS_AND_PLANT:
-    'At the workbench, drop those cotton wicks down into the PVC channel and pack your clay pebbles and seeds into the cups.',
+    'Notice why we keep the net-cup above the bottom of the pipe! That air gap lets roots breathe oxygen so they never rot, while the cotton wick reaches down to pull water upward by capillary action.',
   FILL_AT_SINK:
     'Over to the kitchen sink! Turn on the gooseneck tap to fill your reservoir pitcher with fresh water.',
   POUR_AND_GROW:
-    'Pour the water into the PVC fill funnel and watch gravity stabilize the waterline across the entire channel—zero electronics needed!',
+    'Pour water into the PVC fill funnel! Watch gravity equalize the waterline across the pipe, while cotton wicks silently draw moisture upward into the dry soil—zero pumps or wires!',
   COMPLETE:
-    'Eureka! Your off-grid garden is thriving! Tap Cutaway to peek inside at the stabilized water level and capillary wicks feeding the plants.',
+    'Pipe ready! Turn around and walk out the Garden Exit Door behind you to mount this PVC tier on your vertical rack and plant El Niño-resilient seeds!',
 };
 
 const CUTAWAY_NARRATION =
-  'Look closely inside! Gravity equalizes the water level along the pipe while cotton wicks pull moisture upward by capillary action—pure physics!';
+  'Look closely inside! Below is the shaded water reservoir. Above it sits an oxygen air gap so roots stay healthy. And those cotton wicks use adhesion and cohesion to pull water upward automatically—pure physics!';
 
 class WorkshopVoiceover {
   private muted = false;
@@ -129,6 +129,10 @@ class WorkshopVoiceover {
     this.speak(CUTAWAY_NARRATION);
   }
 
+  public speakCustom(text: string): void {
+    this.speak(text);
+  }
+
   private showPopupOnly(text: string, durationMs: number): void {
     if (this.hideTimer !== null) {
       window.clearTimeout(this.hideTimer);
@@ -181,7 +185,7 @@ class WorkshopVoiceover {
 
       synth.speak(utter);
 
-      this.hideTimer = window.setTimeout(finish, Math.max(5500, text.length * 66));
+      this.hideTimer = window.setTimeout(finish, Math.max(5800, text.length * 66));
     } catch {
       this.showPopupOnly(text, 4800);
     }

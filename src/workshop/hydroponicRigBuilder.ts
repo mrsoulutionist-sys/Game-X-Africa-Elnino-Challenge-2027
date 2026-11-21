@@ -264,6 +264,21 @@ export function buildHydroponicRig(mats: WorkshopMaterials): HydroponicRigHandle
   riserWaterMesh.position.y = 0.07;
   riserWaterGroup.add(riserWaterMesh);
 
+  // Subtle Oxygen Air-Gap indicator ribbon between stabilized waterline and net-cup bottoms
+  const airGapMat = new THREE.MeshBasicMaterial({
+    color: 0x6ee7b7,
+    transparent: true,
+    opacity: 0.16,
+    depthWrite: false,
+  });
+  disposableMats.push(airGapMat);
+  const airGapBand = new THREE.Mesh(
+    new THREE.BoxGeometry(1.18, 0.018, PIPE_RADIUS * 1.45),
+    airGapMat
+  );
+  airGapBand.position.set(0, PIPE_CENTER_Y + 0.014, 0);
+  manifoldGroup.add(airGapBand);
+
   // --------------------------------------------------------------------------
   // 3. Drilled Planting Ports + Manual Drilling Bullseyes (Step 4)
   // --------------------------------------------------------------------------
