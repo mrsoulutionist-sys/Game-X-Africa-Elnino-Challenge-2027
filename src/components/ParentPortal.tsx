@@ -80,18 +80,18 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ profile, onLogout })
 
       {/* Prominent Game X Africa Header Banner */}
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-8">
-          <div className="flex items-center gap-3.5">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-8">
+          <div className="flex items-center gap-3">
             {/* Game X Africa Geometric Emblem */}
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#007749] text-white shadow-sm">
-              <svg viewBox="0 0 32 32" className="h-7 w-7" aria-hidden="true">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#007749] text-white shadow-sm">
+              <svg viewBox="0 0 32 32" className="h-6 w-6" aria-hidden="true">
                 <path d="M4 6 L16 16 L4 26 Z" fill="#FFB81C" />
                 <path d="M8 6 L18 16 L8 26" fill="none" stroke="#FFFFFF" strokeWidth="2.5" />
                 <circle cx="23" cy="16" r="5" fill="#E03C31" />
               </svg>
             </div>
             <div>
-              <p className="text-base font-extrabold tracking-tight text-[#1E293B] sm:text-lg">
+              <p className="text-base font-extrabold tracking-tight text-[#1E293B]">
                 Game X Africa
               </p>
               <p className="text-xs font-medium text-[#007749]">
@@ -100,9 +100,9 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ profile, onLogout })
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
             {/* Live Sanctuary Counter Badge */}
-            <div className="inline-flex items-center gap-2 rounded-xl border border-[#FFB81C] bg-[#FFB81C]/20 px-3.5 py-2 text-sm font-bold text-[#1E293B] tabular-nums">
+            <div className="inline-flex items-center gap-2 rounded-xl border border-[#FFB81C] bg-[#FFB81C]/20 px-3 py-1.5 text-sm font-bold text-[#1E293B] tabular-nums">
               <PawPrint className="h-4 w-4 text-[#007749]" />
               <span>My Sanctuary: {petCountLabel}</span>
             </div>
@@ -110,7 +110,7 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ profile, onLogout })
             <button
               type="button"
               onClick={onLogout}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-[#1E293B] transition-colors hover:border-[#E03C31] hover:bg-[#E03C31]/10 hover:text-[#991B1B] cursor-pointer whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3.5 py-1.5 text-sm font-semibold text-[#1E293B] transition-colors hover:border-[#E03C31] hover:bg-[#E03C31]/10 hover:text-[#991B1B] cursor-pointer whitespace-nowrap shrink-0"
             >
               <LogOut className="h-4 w-4" />
               <span>Logout</span>
@@ -120,8 +120,8 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ profile, onLogout })
 
         {/* Linked Sponsor, School & Grade(s) Strip */}
         <div className="border-t border-slate-100 bg-[#F5EFE0]/60">
-          <div className="mx-auto grid max-w-6xl grid-cols-1 gap-3 px-4 py-3 sm:grid-cols-3 sm:px-8">
-            <div className="flex items-center gap-2.5 min-w-0">
+          <div className="mx-auto grid max-w-6xl grid-cols-1 gap-2 px-4 py-2 sm:grid-cols-3 sm:px-8">
+            <div className="flex items-center gap-2 min-w-0">
               <UserCheck className="h-4 w-4 shrink-0 text-[#001489]" />
               <div className="min-w-0">
                 <span className="text-xs font-medium text-slate-500">Sponsor: </span>
@@ -131,7 +131,7 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ profile, onLogout })
               </div>
             </div>
 
-            <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
               <School className="h-4 w-4 shrink-0 text-[#007749]" />
               <div className="min-w-0">
                 <span className="text-xs font-medium text-slate-500">School: </span>
@@ -141,7 +141,7 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ profile, onLogout })
               </div>
             </div>
 
-            <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
               <GraduationCap className="h-4 w-4 shrink-0 text-[#E03C31]" />
               <div className="min-w-0">
                 <span className="text-xs font-medium text-slate-500">
@@ -157,7 +157,7 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ profile, onLogout })
       </header>
 
       {/* Main Content */}
-      <main className="mx-auto w-full max-w-6xl space-y-6 px-4 py-6 sm:px-8 sm:py-8">
+      <main className="mx-auto w-full max-w-6xl space-y-5 px-4 py-4 sm:px-8 sm:py-5">
         {/* Segment 1: Interactive South African Herbivore Pet Sanctuary */}
         <PetSanctuary
           profile={profile}

@@ -3,6 +3,7 @@ import {
   ArrowRight,
   CheckCircle2,
   Heart,
+  Info,
   Leaf,
   MapPin,
   ShieldCheck,
@@ -58,7 +59,8 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
     adoptedPets[0]?.id ?? null
   );
   const [petMotion, setPetMotion] = useState<PetMotionState>('idle');
-  const [speechBubble, setSpeechBubble] = useState<string | null>(null);
+  const [speechBubble, setSpeechBubble] = useState<{ title?: string; text: string } | null>(null);
+  const [inspectedPartId, setInspectedPartId] = useState<string | null>(null);
   const [floatingHearts, setFloatingHearts] = useState<FloatingHeart[]>([]);
   const [savingCare, setSavingCare] = useState(false);
 
@@ -113,6 +115,10 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
   const activeAdoptedPet =
     adoptedPets.find((p) => p.id === focusedPetId) ?? adoptedPets[0] ?? null;
 
+  const activeCatalog = activeAdoptedPet
+    ? getCatalogPetById(activeAdoptedPet.id)
+    : null;
+
   const handleOpenCheckout = (pet: PetCatalogItem) => {
     setSanctuaryError(null);
     setSelectedCatalogPet(null);
@@ -132,12 +138,13 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
       const saved = await saveParentAdoptedPets(profile.parentKey, nextList);
       onPetsUpdated(saved);
       setFocusedPetId(checkoutPet.id);
+      setInspectedPartId(null);
       setCheckoutPet(null);
       setActiveTab('habitat');
       triggerMotion('hop', 900);
-      setSpeechBubble(
-        `Welcome home! ${checkoutPet.name} is thrilled to join your ${profile.schoolName} sanctuary, ${profile.pseudonym}!`
-      );
+      setSpeechBubble({
+        text: `Welcome home! ${checkoutPet.name} is thrilled to join your ${profile.schoolName} sanctuary, ${profile.pseudonym}!`,
+      });
     } catch (err) {
       setSanctuaryError(
         err instanceof Error
@@ -169,14 +176,14 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
   };
 
   const handleSayHi = async () => {
-    if (!activeAdoptedPet) return;
-    const catalog = getCatalogPetById(activeAdoptedPet.id);
-    const greetings = catalog.greetingTemplates(profile.pseudonym);
+    if (!activeAdoptedPet || !activeCatalog) return;
+    const greetings = activeCatalog.greetingTemplates(profile.pseudonym);
     const msg = greetings[interactionIndexRef.current % greetings.length];
     interactionIndexRef.current += 1;
 
+    setInspectedPartId(null);
     triggerMotion('hop', 820);
-    setSpeechBubble(msg);
+    setSpeechBubble({ text: msg });
 
     await persistPetCare(activeAdoptedPet.id, (pet) => ({
       ...pet,
@@ -185,15 +192,15 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
   };
 
   const handlePetAndCuddle = async () => {
-    if (!activeAdoptedPet) return;
-    const catalog = getCatalogPetById(activeAdoptedPet.id);
-    const reactions = catalog.cuddleReactions;
+    if (!activeAdoptedPet || !activeCatalog) return;
+    const reactions = activeCatalog.cuddleReactions;
     const msg = reactions[interactionIndexRef.current % reactions.length];
     interactionIndexRef.current += 1;
 
+    setInspectedPartId(null);
     spawnHearts();
     triggerMotion('hop', 820);
-    setSpeechBubble(msg);
+    setSpeechBubble({ text: msg });
 
     await persistPetCare(activeAdoptedPet.id, (pet) => ({
       ...pet,
@@ -202,19 +209,39 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
   };
 
   const handlePlayTogether = async () => {
-    if (!activeAdoptedPet) return;
-    const catalog = getCatalogPetById(activeAdoptedPet.id);
-    const trivia = catalog.natureTrivia;
+    if (!activeAdoptedPet || !activeCatalog) return;
+    const trivia = activeCatalog.natureTrivia;
     const msg = trivia[interactionIndexRef.current % trivia.length];
     interactionIndexRef.current += 1;
 
+    setInspectedPartId(null);
     triggerMotion('play', 920);
-    setSpeechBubble(msg);
+    setSpeechBubble({ title: 'Nature Discovery', text: msg });
 
     await persistPetCare(activeAdoptedPet.id, (pet) => ({
       ...pet,
       happiness: Math.min(100, pet.happiness + 5),
       hunger: Math.max(45, pet.hunger - 3),
+    }));
+  };
+
+  const handleInspectBodyPart = async (partId: string) => {
+    if (!activeAdoptedPet || !activeCatalog) return;
+    const found =
+      activeCatalog.bodyPartFacts.find((item) => item.partId === partId) ??
+      activeCatalog.bodyPartFacts[0];
+    if (!found) return;
+
+    setInspectedPartId(found.partId);
+    triggerMotion('hop', 760);
+    setSpeechBubble({
+      title: found.label,
+      text: found.fact,
+    });
+
+    await persistPetCare(activeAdoptedPet.id, (pet) => ({
+      ...pet,
+      happiness: Math.min(100, pet.happiness + 2),
     }));
   };
 
@@ -224,12 +251,12 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
       className="rounded-2xl border border-[#007749]/25 bg-white shadow-sm overflow-hidden"
     >
       {/* Top Section Header & Part A / Part B Switcher */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 bg-[#F5EFE0]/70 px-5 py-4 sm:px-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-[#F5EFE0]/70 px-5 py-3.5 sm:px-6">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-[#007749]">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-[#007749]">
             Segment 1 · Indigenous Companion Sanctuary
           </p>
-          <h2 className="mt-0.5 text-xl font-bold text-[#1E293B]">
+          <h2 className="text-lg font-bold text-[#1E293B] sm:text-xl">
             South African Herbivore Pet Sanctuary
           </h2>
         </div>
@@ -248,7 +275,7 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
               setSanctuaryError(null);
               setActiveTab('adopt');
             }}
-            className={`whitespace-nowrap shrink-0 rounded-lg px-4 py-2 text-sm font-semibold transition-colors cursor-pointer ${
+            className={`whitespace-nowrap shrink-0 rounded-lg px-4 py-1.5 text-sm font-semibold transition-colors cursor-pointer ${
               activeTab === 'adopt'
                 ? 'bg-[#007749] text-white shadow-sm'
                 : 'text-[#1E293B] hover:bg-slate-100'
@@ -265,7 +292,7 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
               setSanctuaryError(null);
               setActiveTab('habitat');
             }}
-            className={`whitespace-nowrap shrink-0 rounded-lg px-4 py-2 text-sm font-semibold transition-colors cursor-pointer tabular-nums ${
+            className={`whitespace-nowrap shrink-0 rounded-lg px-4 py-1.5 text-sm font-semibold transition-colors cursor-pointer tabular-nums ${
               activeTab === 'habitat'
                 ? 'bg-[#001489] text-white shadow-sm'
                 : 'text-[#1E293B] hover:bg-slate-100'
@@ -358,6 +385,7 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
                           onClick={(e) => {
                             e.stopPropagation();
                             setFocusedPetId(pet.id);
+                            setInspectedPartId(null);
                             setActiveTab('habitat');
                           }}
                           className="whitespace-nowrap shrink-0 rounded-lg bg-[#001489] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#001489]/90 cursor-pointer"
@@ -392,14 +420,14 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
 
       {/* PART B: MY PET SANCTUARY (INTERACTIVE HABITAT ENVIRONMENT) */}
       {activeTab === 'habitat' && (
-        <div className="p-5 sm:p-6">
+        <div className="p-4 sm:p-5">
           {loadingPets ? (
             <div className="rounded-2xl border border-slate-200 bg-[#FBF8F1] p-10 text-center">
               <p className="text-sm font-semibold text-slate-600">
                 Loading your South African Pet Sanctuary...
               </p>
             </div>
-          ) : !activeAdoptedPet ? (
+          ) : !activeAdoptedPet || !activeCatalog ? (
             <div className="rounded-2xl border border-slate-200 bg-[#FBF8F1] p-8 text-center">
               <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#007749]/10 text-[#007749]">
                 <Sprout className="h-7 w-7" />
@@ -420,10 +448,10 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
               </button>
             </div>
           ) : (
-            <div className="space-y-5">
+            <div className="space-y-4">
               {/* Companion Switcher if Parent Adopted Multiple Pets */}
               {adoptedPets.length > 1 && (
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-[#FBF8F1] px-4 py-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-[#FBF8F1] px-4 py-2">
                   <span className="text-xs font-semibold uppercase tracking-wider text-slate-600">
                     Active Sanctuary Companion:
                   </span>
@@ -436,6 +464,7 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
                           type="button"
                           onClick={() => {
                             setFocusedPetId(pet.id);
+                            setInspectedPartId(null);
                             setSpeechBubble(null);
                             triggerMotion('hop', 700);
                           }}
@@ -453,191 +482,222 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
                 </div>
               )}
 
-              {/* Illustrated South African Veld & Garden Sanctuary Scene */}
-              <div className="relative h-[340px] sm:h-[380px] w-full overflow-hidden rounded-2xl border border-[#007749]/30 bg-[#FEF3C7]">
-                <VeldHabitatBackdrop />
+              {/* Unified Two-Zone Cockpit: Stage + Docked Care Bar on Left, Wellbeing + Part Explorer on Right */}
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:items-stretch">
+                {/* LEFT ZONE: Habitat Stage + Docked Interactive Care Bar (Locked Together — Zero Scroll Needed!) */}
+                <div className="lg:col-span-8 flex flex-col rounded-2xl border border-[#007749]/30 overflow-hidden bg-white shadow-sm">
+                  <div className="relative h-[280px] sm:h-[320px] w-full overflow-hidden bg-[#FEF3C7]">
+                    <VeldHabitatBackdrop />
 
-                {/* Habitat Info Caption (Top Left) */}
-                <div className="absolute left-4 top-4 rounded-xl bg-white/95 border border-slate-200/90 px-3.5 py-2 shadow-sm">
-                  <p className="text-xs font-bold text-[#1E293B]">
-                    {activeAdoptedPet.name} the {activeAdoptedPet.species}
-                  </p>
-                  <p className="text-[11px] font-medium text-slate-600">
-                    {activeAdoptedPet.age} years old · {profile.schoolName}
-                  </p>
-                </div>
-
-                {/* Add Another Companion Quick Link (Top Right) */}
-                {adoptedPets.length < SA_HERBIVORE_CATALOG.length && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('adopt')}
-                    className="absolute right-4 top-4 rounded-xl bg-[#FFB81C] px-3.5 py-2 text-xs font-bold text-[#1E293B] shadow-sm hover:bg-[#eab308] transition-colors cursor-pointer"
-                  >
-                    + Adopt Another (R50)
-                  </button>
-                )}
-
-                {/* Other Adopted Companions Hanging Out Nearby */}
-                {adoptedPets
-                  .filter((p) => p.id !== activeAdoptedPet.id)
-                  .map((companion, idx) => (
-                    <button
-                      key={companion.id}
-                      type="button"
-                      onClick={() => {
-                        setFocusedPetId(companion.id);
-                        setSpeechBubble(null);
-                        triggerMotion('hop', 700);
-                      }}
-                      title={`Say hello to ${companion.name}`}
-                      className={`hidden sm:block absolute bottom-6 ${
-                        idx === 0 ? 'left-[18%]' : idx === 1 ? 'right-[18%]' : 'left-[8%]'
-                      } opacity-90 hover:opacity-100 hover:scale-105 transition-transform cursor-pointer`}
-                    >
-                      <PetIllustration petId={companion.id} className="h-20 w-24" />
-                    </button>
-                  ))}
-
-                {/* Active Pet Centerpiece + Speech Bubble + Floating Hearts */}
-                <div className="absolute inset-x-0 bottom-4 flex flex-col items-center justify-end pointer-events-none px-4">
-                  {speechBubble && (
-                    <div
-                      key={speechBubble}
-                      className="animate-bubble-pop relative mb-2 max-w-md rounded-2xl border border-[#007749]/35 bg-white px-4 py-2.5 text-center text-sm font-medium text-[#1E293B] shadow-lg"
-                    >
-                      <p>{speechBubble}</p>
-                      <span
-                        aria-hidden="true"
-                        className="absolute -bottom-2 left-1/2 h-3.5 w-3.5 -translate-x-1/2 rotate-45 border-b border-r border-[#007749]/35 bg-white"
-                      />
+                    {/* Habitat Info Caption (Top Left) */}
+                    <div className="absolute left-3.5 top-3.5 rounded-xl bg-white/95 border border-slate-200/90 px-3 py-1.5 shadow-sm">
+                      <p className="text-xs font-bold text-[#1E293B]">
+                        {activeAdoptedPet.name} the {activeAdoptedPet.species}
+                      </p>
+                      <p className="text-[11px] font-medium text-slate-600">
+                        Tap {activeAdoptedPet.name} directly to explore!
+                      </p>
                     </div>
-                  )}
 
-                  <div className="relative flex items-center justify-center">
-                    {/* Floating Hearts Layer */}
-                    {floatingHearts.map((heart) => (
-                      <span
-                        key={heart.uid}
-                        aria-hidden="true"
-                        style={{
-                          left: `${heart.leftPct}%`,
-                          animationDelay: `${heart.delayMs}ms`,
-                        }}
-                        className="animate-heart-float absolute -top-2 text-2xl select-none"
+                    {/* Add Another Companion Quick Link (Top Right) */}
+                    {adoptedPets.length < SA_HERBIVORE_CATALOG.length && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('adopt')}
+                        className="absolute right-3.5 top-3.5 rounded-xl bg-[#FFB81C] px-3 py-1.5 text-xs font-bold text-[#1E293B] shadow-sm hover:bg-[#eab308] transition-colors cursor-pointer"
                       >
-                        ❤️
-                      </span>
-                    ))}
-
-                    <div
-                      className={
-                        petMotion === 'hop'
-                          ? 'animate-pet-hop'
-                          : petMotion === 'play'
-                            ? 'animate-pet-play'
-                            : 'animate-pet-idle'
-                      }
-                    >
-                      <PetIllustration
-                        petId={activeAdoptedPet.id}
-                        className="h-36 w-44 sm:h-44 sm:w-52 drop-shadow-md"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Status Bars + Care Controls Deck */}
-              <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-                {/* Happiness & Tummy / Energy Status Bars */}
-                <div className="lg:col-span-6 rounded-2xl border border-slate-200 bg-[#FBF8F1] p-5 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-[#1E293B]">
-                      Companion Wellbeing
-                    </h3>
-                    {savingCare && (
-                      <span className="text-xs font-medium text-[#007749]">Saving...</span>
+                        + Adopt Another (R50)
+                      </button>
                     )}
+
+                    {/* Other Adopted Companions Hanging Out Nearby */}
+                    {adoptedPets
+                      .filter((p) => p.id !== activeAdoptedPet.id)
+                      .map((companion, idx) => (
+                        <button
+                          key={companion.id}
+                          type="button"
+                          onClick={() => {
+                            setFocusedPetId(companion.id);
+                            setInspectedPartId(null);
+                            setSpeechBubble(null);
+                            triggerMotion('hop', 700);
+                          }}
+                          title={`Say hello to ${companion.name}`}
+                          className={`hidden sm:block absolute bottom-4 ${
+                            idx === 0 ? 'left-[16%]' : idx === 1 ? 'right-[16%]' : 'left-[6%]'
+                          } opacity-90 hover:opacity-100 hover:scale-105 transition-transform cursor-pointer`}
+                        >
+                          <PetIllustration petId={companion.id} className="h-18 w-22" />
+                        </button>
+                      ))}
+
+                    {/* Active Pet Centerpiece + Speech Bubble + Floating Hearts */}
+                    <div className="absolute inset-x-0 bottom-2 flex flex-col items-center justify-end pointer-events-none px-3">
+                      {speechBubble && (
+                        <div
+                          key={`${speechBubble.title ?? ''}:${speechBubble.text}`}
+                          className="animate-bubble-pop relative mb-1.5 max-w-md rounded-2xl border border-[#007749]/35 bg-white/95 px-3.5 py-2 text-center text-xs sm:text-sm font-medium text-[#1E293B] shadow-lg"
+                        >
+                          {speechBubble.title && (
+                            <p className="text-[11px] font-bold uppercase tracking-wider text-[#007749] mb-0.5">
+                              {speechBubble.title}
+                            </p>
+                          )}
+                          <p>{speechBubble.text}</p>
+                          <span
+                            aria-hidden="true"
+                            className="absolute -bottom-1.5 left-1/2 h-3 w-3 -translate-x-1/2 rotate-45 border-b border-r border-[#007749]/35 bg-white"
+                          />
+                        </div>
+                      )}
+
+                      <div className="relative flex items-center justify-center pointer-events-auto">
+                        {/* Floating Hearts Layer */}
+                        {floatingHearts.map((heart) => (
+                          <span
+                            key={heart.uid}
+                            aria-hidden="true"
+                            style={{
+                              left: `${heart.leftPct}%`,
+                              animationDelay: `${heart.delayMs}ms`,
+                            }}
+                            className="animate-heart-float pointer-events-none absolute -top-2 text-2xl select-none"
+                          >
+                            ❤️
+                          </span>
+                        ))}
+
+                        <div
+                          className={
+                            petMotion === 'hop'
+                              ? 'animate-pet-hop'
+                              : petMotion === 'play'
+                                ? 'animate-pet-play'
+                                : 'animate-pet-idle'
+                          }
+                        >
+                          <PetIllustration
+                            petId={activeAdoptedPet.id}
+                            interactive
+                            activePartId={inspectedPartId}
+                            onPartClick={handleInspectBodyPart}
+                            className="h-36 w-44 sm:h-40 sm:w-48 drop-shadow-md"
+                          />
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Happiness Meter */}
-                  <div>
-                    <div className="flex items-center justify-between text-sm font-semibold text-[#1E293B]">
-                      <span className="inline-flex items-center gap-1.5">
-                        <Heart className="h-4 w-4 text-[#E03C31]" />
-                        Happiness
-                      </span>
-                      <span className="tabular-nums text-[#007749]">
-                        {activeAdoptedPet.happiness}%
-                      </span>
-                    </div>
-                    <div className="mt-1.5 h-3 w-full overflow-hidden rounded-full bg-slate-200">
-                      <div
-                        className="h-full rounded-full bg-[#007749] transition-all duration-300"
-                        style={{ width: `${activeAdoptedPet.happiness}%` }}
-                      />
-                    </div>
-                  </div>
+                  {/* DOCKED CARE BAR — Permanently Attached Right Below the Pet */}
+                  <div className="border-t border-slate-200 bg-[#F5EFE0] p-3">
+                    <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                      <button
+                        type="button"
+                        onClick={handleSayHi}
+                        className="flex items-center justify-center gap-1.5 rounded-xl bg-[#001489] px-2.5 py-2.5 text-xs sm:text-sm font-semibold text-white hover:bg-[#001489]/90 active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap"
+                      >
+                        <span>Say Hi 👋</span>
+                      </button>
 
-                  {/* Tummy / Energy Meter */}
-                  <div>
-                    <div className="flex items-center justify-between text-sm font-semibold text-[#1E293B]">
-                      <span className="inline-flex items-center gap-1.5">
-                        <Utensils className="h-4 w-4 text-[#007749]" />
-                        Tummy / Energy
-                      </span>
-                      <span className="tabular-nums text-[#B45309]">
-                        {activeAdoptedPet.hunger}%
-                      </span>
+                      <button
+                        type="button"
+                        onClick={handlePetAndCuddle}
+                        className="flex items-center justify-center gap-1.5 rounded-xl bg-[#E03C31] px-2.5 py-2.5 text-xs sm:text-sm font-semibold text-white hover:bg-[#c83228] active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap"
+                      >
+                        <span>Pet &amp; Cuddle ❤️</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handlePlayTogether}
+                        className="flex items-center justify-center gap-1.5 rounded-xl bg-[#007749] px-2.5 py-2.5 text-xs sm:text-sm font-semibold text-white hover:bg-[#065F46] active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap"
+                      >
+                        <span>Play Together 🌿</span>
+                      </button>
                     </div>
-                    <div className="mt-1.5 h-3 w-full overflow-hidden rounded-full bg-slate-200">
-                      <div
-                        className="h-full rounded-full bg-[#FFB81C] transition-all duration-300"
-                        style={{ width: `${activeAdoptedPet.hunger}%` }}
-                      />
-                    </div>
-                    <p className="mt-2 text-xs text-slate-600">
-                      Favorite food: {getCatalogPetById(activeAdoptedPet.id).favoriteCrops} — ready to nourish in the upcoming Grade Produce Shop.
-                    </p>
                   </div>
                 </div>
 
-                {/* Interactive Care Buttons */}
-                <div className="lg:col-span-6 rounded-2xl border border-slate-200 bg-[#FBF8F1] p-5 flex flex-col justify-between">
-                  <div>
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-[#1E293B]">
-                      Interact & Care
-                    </h3>
-                    <p className="mt-1 text-xs text-slate-600">
-                      Every visit and care moment is saved automatically to your sponsor sanctuary.
-                    </p>
+                {/* RIGHT ZONE: Companion Wellbeing + Interactive Anatomy Explorer */}
+                <div className="lg:col-span-4 flex flex-col justify-between gap-4 rounded-2xl border border-slate-200 bg-[#FBF8F1] p-4 sm:p-5">
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-[#1E293B]">
+                        Companion Wellbeing
+                      </h3>
+                      {savingCare && (
+                        <span className="text-xs font-medium text-[#007749]">Saving...</span>
+                      )}
+                    </div>
+
+                    {/* Happiness Meter */}
+                    <div>
+                      <div className="flex items-center justify-between text-sm font-semibold text-[#1E293B]">
+                        <span className="inline-flex items-center gap-1.5">
+                          <Heart className="h-4 w-4 text-[#E03C31]" />
+                          Happiness
+                        </span>
+                        <span className="tabular-nums text-[#007749]">
+                          {activeAdoptedPet.happiness}%
+                        </span>
+                      </div>
+                      <div className="mt-1.5 h-2.5 w-full overflow-hidden rounded-full bg-slate-200">
+                        <div
+                          className="h-full rounded-full bg-[#007749] transition-all duration-300"
+                          style={{ width: `${activeAdoptedPet.happiness}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Tummy / Energy Meter */}
+                    <div>
+                      <div className="flex items-center justify-between text-sm font-semibold text-[#1E293B]">
+                        <span className="inline-flex items-center gap-1.5">
+                          <Utensils className="h-4 w-4 text-[#007749]" />
+                          Tummy / Energy
+                        </span>
+                        <span className="tabular-nums text-[#B45309]">
+                          {activeAdoptedPet.hunger}%
+                        </span>
+                      </div>
+                      <div className="mt-1.5 h-2.5 w-full overflow-hidden rounded-full bg-slate-200">
+                        <div
+                          className="h-full rounded-full bg-[#FFB81C] transition-all duration-300"
+                          style={{ width: `${activeAdoptedPet.hunger}%` }}
+                        />
+                      </div>
+                      <p className="mt-1.5 text-xs text-slate-600">
+                        Favorite: {activeCatalog.favoriteCrops}
+                      </p>
+                    </div>
                   </div>
 
-                  <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                    <button
-                      type="button"
-                      onClick={handleSayHi}
-                      className="flex items-center justify-center gap-2 rounded-xl border border-[#001489]/25 bg-[#001489] px-4 py-3 text-sm font-semibold text-white hover:bg-[#001489]/90 active:scale-[0.98] transition-all cursor-pointer"
-                    >
-                      <span>Say Hi 👋</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handlePetAndCuddle}
-                      className="flex items-center justify-center gap-2 rounded-xl border border-[#E03C31]/30 bg-[#E03C31] px-4 py-3 text-sm font-semibold text-white hover:bg-[#c83228] active:scale-[0.98] transition-all cursor-pointer"
-                    >
-                      <span>Pet &amp; Cuddle ❤️</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handlePlayTogether}
-                      className="flex items-center justify-center gap-2 rounded-xl border border-[#007749]/30 bg-[#007749] px-4 py-3 text-sm font-semibold text-white hover:bg-[#065F46] active:scale-[0.98] transition-all cursor-pointer"
-                    >
-                      <span>Play Together 🌿</span>
-                    </button>
+                  {/* Interactive Touch-to-Learn Body Parts */}
+                  <div className="border-t border-slate-200 pt-3.5">
+                    <p className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#001489]">
+                      <Info className="h-3.5 w-3.5" />
+                      <span>Tap {activeAdoptedPet.name} to Learn</span>
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {activeCatalog.bodyPartFacts.map((part) => {
+                        const isSelected = inspectedPartId === part.partId;
+                        return (
+                          <button
+                            key={part.partId}
+                            type="button"
+                            onClick={() => handleInspectBodyPart(part.partId)}
+                            className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+                              isSelected
+                                ? 'bg-[#FFB81C] text-[#1E293B] shadow-sm'
+                                : 'bg-white border border-slate-200 text-[#1E293B] hover:border-[#007749]/50 hover:bg-[#007749]/5'
+                            }`}
+                          >
+                            {part.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -720,6 +780,7 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
                     type="button"
                     onClick={() => {
                       setFocusedPetId(selectedCatalogPet.id);
+                      setInspectedPartId(null);
                       setSelectedCatalogPet(null);
                       setActiveTab('habitat');
                     }}

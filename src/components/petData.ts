@@ -19,6 +19,12 @@ export interface AdoptedPet {
   hunger: number;
 }
 
+export interface PetBodyPartFact {
+  partId: string;
+  label: string;
+  fact: string;
+}
+
 export interface PetCatalogItem {
   id: PetId;
   name: string;
@@ -34,6 +40,7 @@ export interface PetCatalogItem {
   greetingTemplates: (pseudonym: string) => string[];
   cuddleReactions: string[];
   natureTrivia: string[];
+  bodyPartFacts: PetBodyPartFact[];
 }
 
 export const SA_HERBIVORE_CATALOG: PetCatalogItem[] = [
@@ -62,6 +69,28 @@ export const SA_HERBIVORE_CATALOG: PetCatalogItem[] = [
       'Leopard tortoises (Stigmochelys pardalis) can store water in their bodies to survive dry El Niño seasons—just like a JoJo rainwater tank!',
       'Notice the high dome of my shell? Its golden-and-charcoal pattern hides me among dry Karoo scrub and sunlit grasses.',
     ],
+    bodyPartFacts: [
+      {
+        partId: 'shell',
+        label: 'Domed Rosette Shell',
+        fact: 'My domed shell has keratin plates fused right to my spine! Its golden-and-black rosettes camouflage me in Karoo scrub and shield me from El Niño sun.',
+      },
+      {
+        partId: 'head',
+        label: 'Head & Beak',
+        fact: 'I have sharp eyesight for bright garden leaves and a strong beak instead of teeth—perfect for snipping crunchy student spinach!',
+      },
+      {
+        partId: 'legs',
+        label: 'Scaly Tortoise Legs',
+        fact: 'My sturdy, scaly legs carry me safely over dry thornveld rocks—and inside my body I even store rainwater reserves like a walking JoJo tank!',
+      },
+      {
+        partId: 'snack',
+        label: 'Garden Leaf Snack',
+        fact: 'Fresh greens from vertical PVC wicking pipes give me nearly 80% of my daily hydration during dry months!',
+      },
+    ],
   },
   {
     id: 'zuri-rabbit',
@@ -87,6 +116,28 @@ export const SA_HERBIVORE_CATALOG: PetCatalogItem[] = [
     natureTrivia: [
       'The Riverine Rabbit (Bunolagus monticularis) is critically endangered and found only along seasonal riverbeds in South Africa’s Karoo!',
       'Healthy riverside bushes hold moisture underground—just like buried 2L drip bottles and cardboard mulch keep garden roots cool.',
+    ],
+    bodyPartFacts: [
+      {
+        partId: 'ears',
+        label: 'Long Velvet Ears',
+        fact: 'My tall ears act like natural air conditioners—releasing extra heat into the Karoo breeze and listening closely for hawks!',
+      },
+      {
+        partId: 'head',
+        label: 'Eye-Ring & Twitchy Nose',
+        fact: 'See the white ring around my eye? That is a signature Riverine Rabbit marking, and my nose twitches over 100 times a minute sniffing for herbs!',
+      },
+      {
+        partId: 'paws',
+        label: 'Fluffy Tail & Hind Paws',
+        fact: 'My fluffy tail and springy hind paws help me dart between riverbank bushes that shade the soil from harsh drought.',
+      },
+      {
+        partId: 'snack',
+        label: 'Crunchy Garden Carrot',
+        fact: 'Crunchy student-grown carrots and basil stems keep my ever-growing front teeth neatly trimmed and healthy!',
+      },
     ],
   },
   {
@@ -114,6 +165,28 @@ export const SA_HERBIVORE_CATALOG: PetCatalogItem[] = [
       'Cape Grysboks (Raphicerus melanotis) are tiny nocturnal browsers of the Cape Floristic Region—a biodiversity hotspot found nowhere else on Earth!',
       'We get most of our moisture from tender shaded leaves, which is why shade cloth over school racks helps cut water loss by 35%.',
     ],
+    bodyPartFacts: [
+      {
+        partId: 'coat',
+        label: 'Grizzled Fynbos Coat',
+        fact: '"Grysbok" means "grey buck" in Afrikaans because of these tiny white hairs sprinkled through my chestnut coat for fynbos camouflage!',
+      },
+      {
+        partId: 'ears',
+        label: 'Horns & Swivel Ears',
+        fact: 'My large ears swivel like radar dishes at dusk, and tiny 8cm straight horns let me slip smoothly through dense Cape bushes.',
+      },
+      {
+        partId: 'legs',
+        label: 'Delicate Hooves',
+        fact: 'My light cloven hooves step gently across mulched garden beds without crushing roots or soil compost layers!',
+      },
+      {
+        partId: 'snack',
+        label: 'Sweet Clover Shoot',
+        fact: 'Shaded clover and tender kale hold cool dew inside their leaves—meaning I rarely need to visit open puddles during dry spells!',
+      },
+    ],
   },
   {
     id: 'biko-dassie',
@@ -139,6 +212,28 @@ export const SA_HERBIVORE_CATALOG: PetCatalogItem[] = [
     natureTrivia: [
       'Fun fact: Rock Hyraxes (Dassies) have rubbery, sweat-moistened footpads for gripping steep cliffs—and our closest living land relative is the elephant!',
       'Sunbathing warms us up without using extra energy, leaving more plant energy for exploring rocky koppie trails.',
+    ],
+    bodyPartFacts: [
+      {
+        partId: 'body',
+        label: 'Elephant Cousin Coat',
+        fact: 'Surprise! Although I look small and furry, my closest living land relative is the African elephant—we share similar skull, toe, and tooth traits!',
+      },
+      {
+        partId: 'head',
+        label: 'Whiskers & Tiny Tusks',
+        fact: 'Inside my cheek smile are two tiny tusk-like front teeth that keep growing, plus sensitive whiskers for navigating cool rock caves!',
+      },
+      {
+        partId: 'rock',
+        label: 'Gripping Paws & Sun Rock',
+        fact: 'My bare footpads stay moist so they grip steep Table Mountain cliffs like suction cups—and basking on warm granite saves my food energy!',
+      },
+      {
+        partId: 'snack',
+        label: 'Crisp Garden Parsley',
+        fact: 'My specialized multi-chambered stomach digests tough mountain fynbos and crisp Swiss chard leaves from school gardens with ease!',
+      },
     ],
   },
 ];
