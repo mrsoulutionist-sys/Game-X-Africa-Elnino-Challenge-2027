@@ -160,6 +160,37 @@ service cloud.firestore {
         ]);
     }
 
+    function isValidAdoptedPet(pet) {
+      return pet is map
+        && pet.keys().hasAll(['id', 'species', 'name', 'age', 'adoptedAt', 'happiness', 'hunger'])
+        && pet.keys().hasOnly(['id', 'species', 'name', 'age', 'adoptedAt', 'happiness', 'hunger'])
+        && pet.id in ['thabo-tortoise', 'zuri-rabbit', 'kudu-grysbok', 'biko-dassie']
+        && pet.species is string
+        && pet.species.size() >= 2
+        && pet.species.size() <= 40
+        && pet.name is string
+        && pet.name.size() >= 1
+        && pet.name.size() <= 30
+        && pet.age is int
+        && pet.age >= 1
+        && pet.age <= 50
+        && pet.adoptedAt is string
+        && pet.adoptedAt.size() >= 10
+        && pet.adoptedAt.size() <= 40
+        && pet.happiness is int
+        && pet.happiness >= 0
+        && pet.happiness <= 100
+        && pet.hunger is int
+        && pet.hunger >= 0
+        && pet.hunger <= 100;
+    }
+
+    function isValidAdoptedPetsList(pets) {
+      return pets is list
+        && pets.size() <= 4
+        && (pets.size() == 0 || isValidAdoptedPet(pets[0]));
+    }
+
     function isValidParentDoc(data, pathKey) {
       return data.keys().hasAll([
           'parentKey',
@@ -178,6 +209,7 @@ service cloud.firestore {
           'schoolName',
           'schoolKey',
           'grades',
+          'adoptedPets',
           'createdAt',
           'updatedAt'
         ])
@@ -194,6 +226,7 @@ service cloud.firestore {
         && data.schoolKey.size() >= 1
         && data.schoolKey.size() <= 100
         && isValidParentGrades(data.grades)
+        && (!('adoptedPets' in data) || isValidAdoptedPetsList(data.adoptedPets))
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -267,6 +300,7 @@ service cloud.firestore {
           'schoolName',
           'schoolKey',
           'grades',
+          'adoptedPets',
           'updatedAt'
         ]);
       allow delete: if false;

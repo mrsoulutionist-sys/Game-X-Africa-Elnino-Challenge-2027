@@ -186,6 +186,10 @@
           "type": "array",
           "description": "Bounded list (1 to 9) of Grade 4 to Grade 12 selections for children at the school."
         },
+        "adoptedPets": {
+          "type": "array",
+          "description": "Bounded list (max 4) of adopted South African herbivore sanctuary companions with happiness and hunger meters."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",

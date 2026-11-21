@@ -20,3 +20,103 @@
     font-family: var(--font-sans);
   }
 }
+
+@keyframes petIdleSway {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-4px) scale(1.015);
+  }
+}
+
+@keyframes petHappyHop {
+  0% {
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+  22% {
+    transform: translateY(-20px) rotate(-4deg) scale(1.06);
+  }
+  45% {
+    transform: translateY(-4px) rotate(3deg) scale(0.98);
+  }
+  70% {
+    transform: translateY(-14px) rotate(-2deg) scale(1.04);
+  }
+  100% {
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+}
+
+@keyframes petPlayBounce {
+  0%,
+  100% {
+    transform: translateX(0) translateY(0) rotate(0deg);
+  }
+  25% {
+    transform: translateX(-14px) translateY(-16px) rotate(-6deg);
+  }
+  50% {
+    transform: translateX(0) translateY(0) rotate(0deg);
+  }
+  75% {
+    transform: translateX(14px) translateY(-18px) rotate(6deg);
+  }
+}
+
+@keyframes heartFloatUp {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.6);
+  }
+  20% {
+    opacity: 1;
+    transform: translateY(-6px) scale(1.08);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-58px) scale(0.9);
+  }
+}
+
+@keyframes bubblePopIn {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.92);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-pet-idle {
+  animation: petIdleSway 3.4s ease-in-out infinite;
+}
+
+.animate-pet-hop {
+  animation: petHappyHop 0.78s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-pet-play {
+  animation: petPlayBounce 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-heart-float {
+  animation: heartFloatUp 1.35s ease-out forwards;
+}
+
+.animate-bubble-pop {
+  animation: bubblePopIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pet-idle,
+  .animate-pet-hop,
+  .animate-pet-play,
+  .animate-heart-float {
+    animation: none;
+  }
+}
+
