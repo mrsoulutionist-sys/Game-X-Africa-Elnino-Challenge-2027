@@ -7,15 +7,20 @@ import { DualTouchControls } from './components/DualTouchControls';
 import { EinsteinNarrator } from './components/EinsteinNarrator';
 import { FarmerLoginOverlay } from './components/FarmerLoginOverlay';
 import { GardenRackPanel } from './components/GardenRackPanel';
+import { ParentPortal } from './components/ParentPortal';
 import { WickExplainerModal } from './components/WickExplainerModal';
 import { WorkshopHud } from './components/WorkshopHud';
 import {
   loginOrCreateFarmer,
+  loginOrCreateParent,
   resizeTierArray,
   saveFarmerProgress,
   testFirestoreConnection,
   type ActiveZone,
   type FarmerProfile,
+  type ParentLoginPayload,
+  type ParentProfile,
+  type StudentLoginMetadata,
 } from './firebase/firebaseClient';
 import { workshopAudio } from './workshop/audio';
 import {
@@ -81,6 +86,7 @@ export function App() {
   const [muted, setMuted] = useState(false);
 
   const [farmerProfile, setFarmerProfile] = useState<FarmerProfile | null>(null);
+  const [parentProfile, setParentProfile] = useState<ParentProfile | null>(null);
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
@@ -175,33 +181,52 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [rackPanelOpen, rackDropdownOpen, hudState.activeZone]);
 
-  const handleLogin = useCallback(async (farmerName: string, passcode: string) => {
+  const handleStudentLogin = useCallback(
+    async (farmerName: string, passcode: string, meta: StudentLoginMetadata) => {
+      setLoginLoading(true);
+      setLoginError(null);
+      workshopAudio.unlock();
+      workshopVoiceover.unlockAndSpeakPending();
+      try {
+        const { profile, isReturning } = await loginOrCreateFarmer(farmerName, passcode, meta);
+        setParentProfile(null);
+        profileRef.current = profile;
+        setFarmerProfile(profile);
+        setNowMs(Date.now());
+        const announceStep = !isReturning || profile.activeZone !== 'kitchen';
+        sceneRef.current?.applySavedProfile(
+          profile.activeZone,
+          profile.kitchenStep,
+          profile.rackSize,
+          profile.tiers,
+          announceStep,
+          toResilienceState(profile),
+          profile.door3
+        );
+        if (isReturning && profile.activeZone === 'kitchen') {
+          workshopVoiceover.speakCustom(
+            `Welcome back, ${profile.farmerName}! Your farm workshop progress is restored.`
+          );
+        }
+      } catch (err) {
+        setLoginError(err instanceof Error ? err.message : 'Unable to load farm profile.');
+      } finally {
+        setLoginLoading(false);
+      }
+    },
+    []
+  );
+
+  const handleParentLogin = useCallback(async (payload: ParentLoginPayload) => {
     setLoginLoading(true);
     setLoginError(null);
-    workshopAudio.unlock();
-    workshopVoiceover.unlockAndSpeakPending();
     try {
-      const { profile, isReturning } = await loginOrCreateFarmer(farmerName, passcode);
-      profileRef.current = profile;
-      setFarmerProfile(profile);
-      setNowMs(Date.now());
-      const announceStep = !isReturning || profile.activeZone !== 'kitchen';
-      sceneRef.current?.applySavedProfile(
-        profile.activeZone,
-        profile.kitchenStep,
-        profile.rackSize,
-        profile.tiers,
-        announceStep,
-        toResilienceState(profile),
-        profile.door3
-      );
-      if (isReturning && profile.activeZone === 'kitchen') {
-        workshopVoiceover.speakCustom(
-          `Welcome back, ${profile.farmerName}! Your farm workshop progress is restored.`
-        );
-      }
+      const { profile } = await loginOrCreateParent(payload);
+      profileRef.current = null;
+      setFarmerProfile(null);
+      setParentProfile(profile);
     } catch (err) {
-      setLoginError(err instanceof Error ? err.message : 'Unable to load farm profile.');
+      setLoginError(err instanceof Error ? err.message : 'Unable to load parent profile.');
     } finally {
       setLoginLoading(false);
     }
@@ -213,6 +238,8 @@ export function App() {
     setCompostModalOpen(false);
     setWickModalOpen(false);
     setFarmerProfile(null);
+    setParentProfile(null);
+    setLoginError(null);
     profileRef.current = null;
   }, []);
 
@@ -652,13 +679,20 @@ export function App() {
         </>
       )}
 
-      {/* Lightweight Farmer Name + Passcode Login Overlay */}
-      {!farmerProfile && (
+      {/* Split Login Overlay for Students and Parents / Sponsors */}
+      {!farmerProfile && !parentProfile && (
         <FarmerLoginOverlay
-          onLogin={handleLogin}
+          onStudentLogin={handleStudentLogin}
+          onParentLogin={handleParentLogin}
           loading={loginLoading}
           errorMsg={loginError}
+          onClearError={() => setLoginError(null)}
         />
+      )}
+
+      {/* Isolated Parent / Sponsor Portal */}
+      {parentProfile && (
+        <ParentPortal profile={parentProfile} onLogout={handleLogout} />
       )}
 
       {/* Interactive Capillary Wick & Air-Gap Cross-Section Modal */}

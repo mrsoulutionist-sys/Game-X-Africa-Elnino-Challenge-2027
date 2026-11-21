@@ -98,6 +98,32 @@
           "type": "integer",
           "description": "Door 3 Workstation 3 progress (0 to 4)."
         },
+        "role": {
+          "type": "string",
+          "description": "Account role identifier.",
+          "enum": ["student"]
+        },
+        "schoolName": {
+          "type": "string",
+          "description": "Free-text school name entered by the learner.",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "schoolKey": {
+          "type": "string",
+          "description": "Trimmed, lowercased school identifier for matching parent and student records.",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "grade": {
+          "type": "string",
+          "description": "Learner grade level (Grade 4 to Grade 12)."
+        },
+        "teacherName": {
+          "type": "string",
+          "description": "Optional teacher name entered by the learner.",
+          "maxLength": 60
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",
@@ -120,6 +146,67 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "ParentProfile": {
+      "title": "ParentProfile",
+      "description": "Persistent profile for a parent or sponsor linked to a normalized schoolKey and one or more learner grades.",
+      "type": "object",
+      "properties": {
+        "parentKey": {
+          "type": "string",
+          "description": "Deterministic SHA-256 hex digest derived from normalized parent pseudonym and passcode.",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "role": {
+          "type": "string",
+          "description": "Account role identifier.",
+          "enum": ["parent"]
+        },
+        "pseudonym": {
+          "type": "string",
+          "description": "Pseudonym chosen by the parent or sponsor.",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "schoolName": {
+          "type": "string",
+          "description": "Free-text school name entered by the parent or sponsor.",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "schoolKey": {
+          "type": "string",
+          "description": "Trimmed, lowercased school identifier matching student schoolKey records.",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "grades": {
+          "type": "array",
+          "description": "Bounded list (1 to 9) of Grade 4 to Grade 12 selections for children at the school."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when parent profile was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest saved state."
+        }
+      },
+      "required": [
+        "parentKey",
+        "role",
+        "pseudonym",
+        "schoolName",
+        "schoolKey",
+        "grades",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -128,6 +215,12 @@
         "$ref": "#/entities/FarmerProfile"
       },
       "description": "Stores each farmer's persistent kitchen fabrication progress, vertical rack size, timestamped tier crops, and El Nino drought resilience metrics."
+    },
+    "/parents/{parentKey}": {
+      "schema": {
+        "$ref": "#/entities/ParentProfile"
+      },
+      "description": "Stores each parent or sponsor pseudonym, normalized schoolKey, and selected grade list."
     }
   }
 }

@@ -26,6 +26,42 @@ import type { BuildStepId } from '../workshop/steps';
 
 export type ActiveZone = 'kitchen' | 'garden' | 'compost';
 
+export const SCHOOL_GRADES = [
+  'Grade 4',
+  'Grade 5',
+  'Grade 6',
+  'Grade 7',
+  'Grade 8',
+  'Grade 9',
+  'Grade 10',
+  'Grade 11',
+  'Grade 12',
+] as const;
+
+export type SchoolGrade = (typeof SCHOOL_GRADES)[number];
+
+export interface StudentLoginMetadata {
+  schoolName: string;
+  grade: SchoolGrade;
+  teacherName?: string;
+}
+
+export interface ParentProfile {
+  parentKey: string;
+  role: 'parent';
+  pseudonym: string;
+  schoolName: string;
+  schoolKey: string;
+  grades: SchoolGrade[];
+}
+
+export interface ParentLoginPayload {
+  pseudonym: string;
+  passcode: string;
+  schoolName: string;
+  grades: SchoolGrade[];
+}
+
 export interface FarmerProfile {
   farmerKey: string;
   farmerName: string;
@@ -42,6 +78,11 @@ export interface FarmerProfile {
   litresSaved: number;
   foodServings: number;
   door3: Door3ProgressState;
+  role?: 'student';
+  schoolName?: string;
+  schoolKey?: string;
+  grade?: SchoolGrade;
+  teacherName?: string;
 }
 
 export enum OperationType {
@@ -113,9 +154,7 @@ function fallbackSha256Hex(input: string): string {
   return (seg(h1) + seg(h2) + seg(h3) + seg(h4)).repeat(2);
 }
 
-export async function deriveFarmerKey(farmerName: string, passcode: string): Promise<string> {
-  const normalizedName = farmerName.trim().toLowerCase();
-  const material = `gamex-elnino-farmer:${normalizedName}\0${passcode}`;
+async function sha256Material(material: string): Promise<string> {
   if (typeof window !== 'undefined' && window.crypto?.subtle) {
     const bytes = new TextEncoder().encode(material);
     const digest = await window.crypto.subtle.digest('SHA-256', bytes);
@@ -124,6 +163,20 @@ export async function deriveFarmerKey(farmerName: string, passcode: string): Pro
       .join('');
   }
   return fallbackSha256Hex(material);
+}
+
+export async function deriveFarmerKey(farmerName: string, passcode: string): Promise<string> {
+  const normalizedName = farmerName.trim().toLowerCase();
+  return sha256Material(`gamex-elnino-farmer:${normalizedName}\0${passcode}`);
+}
+
+export async function deriveParentKey(pseudonym: string, passcode: string): Promise<string> {
+  const normalizedName = pseudonym.trim().toLowerCase();
+  return sha256Material(`gamex-elnino-parent:${normalizedName}\0${passcode}`);
+}
+
+export function normalizeSchoolKey(schoolName: string): string {
+  return schoolName.trim().toLowerCase().slice(0, 100);
 }
 
 const VALID_KITCHEN_STEPS: Set<BuildStepId> = new Set([
@@ -225,13 +278,21 @@ function sanitizeTiers(rawTiers: unknown, rackSize: number): TierSaveState[] {
   return result;
 }
 
+const VALID_SCHOOL_GRADES: Set<SchoolGrade> = new Set(SCHOOL_GRADES);
+
 export async function loginOrCreateFarmer(
   rawName: string,
-  passcode: string
+  passcode: string,
+  meta?: StudentLoginMetadata
 ): Promise<{ profile: FarmerProfile; isReturning: boolean }> {
   const farmerName = rawName.trim().slice(0, 40) || 'Farmer';
   const farmerKey = await deriveFarmerKey(farmerName, passcode);
   activeFarmerKeyForErrors = farmerKey;
+
+  const cleanSchoolName = meta ? meta.schoolName.trim().slice(0, 100) : '';
+  const schoolKey = cleanSchoolName ? normalizeSchoolKey(cleanSchoolName) : '';
+  const cleanGrade = meta && VALID_SCHOOL_GRADES.has(meta.grade) ? meta.grade : undefined;
+  const cleanTeacherName = meta?.teacherName ? meta.teacherName.trim().slice(0, 60) : '';
 
   const path = `farmers/${farmerKey}`;
   const ref = doc(db, 'farmers', farmerKey);
@@ -266,6 +327,36 @@ export async function loginOrCreateFarmer(
         ? Math.max(0, Math.min(jojoCapacity, data.jojoLitres))
         : 18;
 
+    if (cleanSchoolName && cleanGrade) {
+      const studentMetaMerge: Record<string, unknown> = {
+        role: 'student',
+        schoolName: cleanSchoolName,
+        schoolKey,
+        grade: cleanGrade,
+        updatedAt: serverTimestamp(),
+      };
+      if (cleanTeacherName) {
+        studentMetaMerge.teacherName = cleanTeacherName;
+      }
+      try {
+        await setDoc(ref, studentMetaMerge, { merge: true });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, path);
+      }
+    }
+
+    const resolvedSchoolName =
+      cleanSchoolName || (typeof data.schoolName === 'string' ? data.schoolName : undefined);
+    const resolvedSchoolKey =
+      schoolKey || (typeof data.schoolKey === 'string' ? data.schoolKey : undefined);
+    const resolvedGrade =
+      cleanGrade ||
+      (typeof data.grade === 'string' && VALID_SCHOOL_GRADES.has(data.grade as SchoolGrade)
+        ? (data.grade as SchoolGrade)
+        : undefined);
+    const resolvedTeacher =
+      cleanTeacherName || (typeof data.teacherName === 'string' ? data.teacherName : undefined);
+
     const profile: FarmerProfile = {
       farmerKey,
       farmerName: String(data.farmerName || farmerName).slice(0, 40),
@@ -284,6 +375,11 @@ export async function loginOrCreateFarmer(
       foodServings:
         typeof data.foodServings === 'number' ? Math.max(0, Math.round(data.foodServings)) : 0,
       door3: sanitizeDoor3(data),
+      role: 'student',
+      ...(resolvedSchoolName ? { schoolName: resolvedSchoolName } : {}),
+      ...(resolvedSchoolKey ? { schoolKey: resolvedSchoolKey } : {}),
+      ...(resolvedGrade ? { grade: resolvedGrade } : {}),
+      ...(resolvedTeacher ? { teacherName: resolvedTeacher } : {}),
     };
     return { profile, isReturning: true };
   }
@@ -305,21 +401,104 @@ export async function loginOrCreateFarmer(
     litresSaved: 0,
     foodServings: 0,
     door3: { ...DEFAULT_DOOR3_PROGRESS },
+    role: 'student',
+    ...(cleanSchoolName ? { schoolName: cleanSchoolName, schoolKey } : {}),
+    ...(cleanGrade ? { grade: cleanGrade } : {}),
+    ...(cleanTeacherName ? { teacherName: cleanTeacherName } : {}),
   };
 
   try {
     const { door3, ...baseFields } = freshProfile;
-    await setDoc(ref, {
-      ...baseFields,
-      ...serializeDoor3(door3),
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
+    await setDoc(
+      ref,
+      {
+        ...baseFields,
+        ...serializeDoor3(door3),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
   } catch (err) {
     handleFirestoreError(err, OperationType.CREATE, path);
   }
 
   return { profile: freshProfile, isReturning: false };
+}
+
+export async function loginOrCreateParent(
+  payload: ParentLoginPayload
+): Promise<{ profile: ParentProfile; isReturning: boolean }> {
+  const pseudonym = payload.pseudonym.trim().slice(0, 40) || 'Parent';
+  const schoolName = payload.schoolName.trim().slice(0, 100);
+  const schoolKey = normalizeSchoolKey(schoolName);
+  const cleanGrades: SchoolGrade[] = [];
+  for (const g of payload.grades) {
+    if (VALID_SCHOOL_GRADES.has(g) && !cleanGrades.includes(g)) {
+      cleanGrades.push(g);
+    }
+  }
+  if (cleanGrades.length === 0) {
+    cleanGrades.push('Grade 4');
+  }
+
+  const parentKey = await deriveParentKey(pseudonym, payload.passcode);
+  activeFarmerKeyForErrors = parentKey;
+
+  const path = `parents/${parentKey}`;
+  const ref = doc(db, 'parents', parentKey);
+
+  let snap;
+  try {
+    snap = await getDoc(ref);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.GET, path);
+  }
+
+  const profile: ParentProfile = {
+    parentKey,
+    role: 'parent',
+    pseudonym,
+    schoolName,
+    schoolKey,
+    grades: cleanGrades,
+  };
+
+  if (snap.exists()) {
+    try {
+      await setDoc(
+        ref,
+        {
+          role: 'parent',
+          pseudonym,
+          schoolName,
+          schoolKey,
+          grades: cleanGrades,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, path);
+    }
+    return { profile, isReturning: true };
+  }
+
+  try {
+    await setDoc(
+      ref,
+      {
+        ...profile,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    handleFirestoreError(err, OperationType.CREATE, path);
+  }
+
+  return { profile, isReturning: false };
 }
 
 export async function saveFarmerProgress(profile: FarmerProfile): Promise<void> {

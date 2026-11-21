@@ -39,6 +39,20 @@ service cloud.firestore {
         );
     }
 
+    function isValidGrade(g) {
+      return g in [
+        'Grade 4',
+        'Grade 5',
+        'Grade 6',
+        'Grade 7',
+        'Grade 8',
+        'Grade 9',
+        'Grade 10',
+        'Grade 11',
+        'Grade 12'
+      ];
+    }
+
     function isValidOptionalResilienceFields(data) {
       return (!('jojoInstalled' in data) || data.jojoInstalled is bool)
         && (!('jojoLitres' in data) || (data.jojoLitres is number && data.jojoLitres >= 0 && data.jojoLitres <= 500))
@@ -54,6 +68,14 @@ service cloud.firestore {
         && (!('door3CompostRejectTested' in data) || (data.door3CompostRejectTested is int && data.door3CompostRejectTested >= 0 && data.door3CompostRejectTested <= 4))
         && (!('door3MulchMaterial' in data) || data.door3MulchMaterial == null || data.door3MulchMaterial in ['cardboard', 'newspaper'])
         && (!('door3MulchStep' in data) || (data.door3MulchStep is int && data.door3MulchStep >= 0 && data.door3MulchStep <= 4));
+    }
+
+    function isValidStudentMetaFields(data) {
+      return (!('role' in data) || data.role == 'student')
+        && (!('schoolName' in data) || (data.schoolName is string && data.schoolName.size() >= 1 && data.schoolName.size() <= 100))
+        && (!('schoolKey' in data) || (data.schoolKey is string && data.schoolKey.size() >= 1 && data.schoolKey.size() <= 100))
+        && (!('grade' in data) || isValidGrade(data.grade))
+        && (!('teacherName' in data) || (data.teacherName is string && data.teacherName.size() <= 60));
     }
 
     function isValidFarmerDoc(data, pathKey) {
@@ -90,6 +112,11 @@ service cloud.firestore {
           'door3CompostRejectTested',
           'door3MulchMaterial',
           'door3MulchStep',
+          'role',
+          'schoolName',
+          'schoolKey',
+          'grade',
+          'teacherName',
           'createdAt',
           'updatedAt'
         ])
@@ -110,6 +137,63 @@ service cloud.firestore {
         && data.totalHarvestedCount >= 0
         && data.totalHarvestedCount <= 100000
         && isValidOptionalResilienceFields(data)
+        && isValidStudentMetaFields(data)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidParentGrades(grades) {
+      return grades is list
+        && grades.size() >= 1
+        && grades.size() <= 9
+        && grades[0] is string
+        && grades.hasOnly([
+          'Grade 4',
+          'Grade 5',
+          'Grade 6',
+          'Grade 7',
+          'Grade 8',
+          'Grade 9',
+          'Grade 10',
+          'Grade 11',
+          'Grade 12'
+        ]);
+    }
+
+    function isValidParentDoc(data, pathKey) {
+      return data.keys().hasAll([
+          'parentKey',
+          'role',
+          'pseudonym',
+          'schoolName',
+          'schoolKey',
+          'grades',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'parentKey',
+          'role',
+          'pseudonym',
+          'schoolName',
+          'schoolKey',
+          'grades',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.parentKey is string
+        && data.parentKey == pathKey
+        && data.role == 'parent'
+        && data.pseudonym is string
+        && data.pseudonym.size() >= 1
+        && data.pseudonym.size() <= 40
+        && data.schoolName is string
+        && data.schoolName.size() >= 1
+        && data.schoolName.size() <= 100
+        && data.schoolKey is string
+        && data.schoolKey.size() >= 1
+        && data.schoolKey.size() <= 100
+        && isValidParentGrades(data.grades)
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -154,6 +238,35 @@ service cloud.firestore {
           'door3CompostRejectTested',
           'door3MulchMaterial',
           'door3MulchStep',
+          'role',
+          'schoolName',
+          'schoolKey',
+          'grade',
+          'teacherName',
+          'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
+    // Parent / Sponsor profiles keyed by SHA-256(pseudonym + passcode)
+    match /parents/{parentKey} {
+      allow get: if isValidFarmerKey(parentKey);
+      allow list: if false;
+      allow create: if isValidFarmerKey(parentKey)
+        && isValidParentDoc(incoming(), parentKey)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidFarmerKey(parentKey)
+        && isValidParentDoc(incoming(), parentKey)
+        && incoming().parentKey == existing().parentKey
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'role',
+          'pseudonym',
+          'schoolName',
+          'schoolKey',
+          'grades',
           'updatedAt'
         ]);
       allow delete: if false;
