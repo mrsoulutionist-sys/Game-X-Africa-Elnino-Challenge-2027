@@ -25,6 +25,7 @@ export interface GardenYardHandle {
   jojoAnchor: THREE.Vector3;
   weatherAnchor: THREE.Vector3;
   kitchenDoorAnchor: THREE.Vector3;
+  compostDoorAnchor: THREE.Vector3;
   setGardenState: (
     rackSize: number,
     tiers: TierSaveState[],
@@ -254,6 +255,41 @@ export function buildGardenYard(
   doorBeacon.position.set(0, 0.04, 3.85);
   group.add(doorBeacon);
   disposables.push(doorBeacon.material as THREE.Material);
+
+  // Door 3 Gate (Recycling & Composting Station) on South-East Wall (x = 2.65, z = 4.38)
+  const compostDoorFrame = new THREE.Mesh(new THREE.BoxGeometry(1.36, 2.34, 0.26), mats.cabinetDarkMat);
+  compostDoorFrame.position.set(2.65, 1.17, 4.42);
+  group.add(compostDoorFrame);
+
+  const compostDoorPanel = new THREE.Mesh(new THREE.BoxGeometry(1.12, 2.18, 0.08), mats.butcherBlockMat);
+  compostDoorPanel.position.set(2.65, 1.12, 4.38);
+  group.add(compostDoorPanel);
+
+  const compostDoorWindow = new THREE.Mesh(new THREE.BoxGeometry(0.76, 1.15, 0.09), mats.leafMat);
+  compostDoorWindow.position.set(2.65, 1.48, 4.38);
+  group.add(compostDoorWindow);
+
+  const compostDoorHandle = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.03, 0.08), mats.brassMat);
+  compostDoorHandle.position.set(3.07, 1.05, 4.32);
+  group.add(compostDoorHandle);
+
+  const compostSignTex = createGardenSignTexture('DOOR 3 · COMPOST', 'RECYCLE & MULCH →', '#fbbf24');
+  disposables.push(compostSignTex);
+  const compostSignMat = new THREE.MeshBasicMaterial({ map: compostSignTex });
+  disposables.push(compostSignMat);
+  const compostSign = new THREE.Mesh(new THREE.PlaneGeometry(1.32, 0.38), compostSignMat);
+  compostSign.position.set(2.65, 2.6, 4.33);
+  compostSign.rotation.y = Math.PI;
+  group.add(compostSign);
+
+  const compostBeacon = new THREE.Mesh(
+    new THREE.RingGeometry(0.32, 0.4, 28),
+    new THREE.MeshBasicMaterial({ color: 0xfbbf24, side: THREE.DoubleSide })
+  );
+  compostBeacon.rotation.x = -Math.PI * 0.5;
+  compostBeacon.position.set(2.65, 0.04, 3.85);
+  group.add(compostBeacon);
+  disposables.push(compostBeacon.material as THREE.Material);
 
   // 3. Craftable JoJo Rainwater Harvesting Tank Station (x = 2.25, z = -1.75)
   const jojoRoot = new THREE.Group();
@@ -744,6 +780,7 @@ export function buildGardenYard(
     jojoAnchor: new THREE.Vector3(2.25, 0, -1.75),
     weatherAnchor: new THREE.Vector3(-2.25, 0, -1.75),
     kitchenDoorAnchor: new THREE.Vector3(0, 0, 4.15),
+    compostDoorAnchor: new THREE.Vector3(2.65, 0, 4.15),
     setGardenState,
     update,
     dispose,

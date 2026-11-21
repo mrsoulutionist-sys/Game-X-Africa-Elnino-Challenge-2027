@@ -387,3 +387,86 @@ export function buildGardenSignage(
     },
   };
 }
+
+export function buildCompostSignage(
+  rendererMaxAnisotropy: number,
+  mats: WorkshopMaterials
+): SponsorSignageHandle {
+  const group = new THREE.Group();
+  const textures: THREE.Texture[] = [];
+  const materials: THREE.Material[] = [];
+
+  const brandTex = createBrandBannerTexture(rendererMaxAnisotropy);
+  textures.push(brandTex);
+
+  // 1. North Hero "Game X Africa" Arch Banner behind the Compost Station Bay
+  const northArchGroup = new THREE.Group();
+  northArchGroup.position.set(0, 0, -4.84);
+  group.add(northArchGroup);
+
+  [-1.24, 1.24].forEach((px) => {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2.66, 0.08), mats.darkMetalMat);
+    post.position.set(px, 1.33, 0);
+    post.castShadow = true;
+    northArchGroup.add(post);
+
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.04, 0.11), mats.brassMat);
+    cap.position.set(px, 2.67, 0);
+    northArchGroup.add(cap);
+  });
+
+  const northCrossbeam = new THREE.Mesh(new THREE.BoxGeometry(2.72, 0.06, 0.07), mats.darkMetalMat);
+  northCrossbeam.position.set(0, 2.61, 0);
+  northArchGroup.add(northCrossbeam);
+
+  const northBrandBoard = createFramedWallBoard(2.46, 0.92, brandTex, mats);
+  northBrandBoard.position.set(0, 2.08, 0.04);
+  northArchGroup.add(northBrandBoard);
+
+  // 2. West Fence "Game X Africa" Brand Banner
+  const westBrandBoard = createFramedWallBoard(2.15, 0.8, brandTex, mats);
+  westBrandBoard.position.set(-4.75, 1.24, -0.35);
+  westBrandBoard.rotation.y = Math.PI * 0.5;
+  group.add(westBrandBoard);
+
+  // 3. East Fence Modular Sponsor Slot Rail
+  const sponsorFenceGroup = new THREE.Group();
+  sponsorFenceGroup.position.set(4.75, 1.18, -0.35);
+  sponsorFenceGroup.rotation.y = -Math.PI * 0.5;
+  group.add(sponsorFenceGroup);
+
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(3.35, 1.16, 0.022), mats.cabinetDarkMat);
+  rail.position.z = -0.01;
+  sponsorFenceGroup.add(rail);
+
+  MODULAR_SPONSOR_SLOTS.forEach((slot, idx) => {
+    const tex = createSponsorSlotTexture(slot, rendererMaxAnisotropy);
+    textures.push(tex);
+    const slotBoard = createFramedWallBoard(1.52, 0.48, tex, mats);
+    const col = idx % 2;
+    const row = Math.floor(idx / 2);
+    slotBoard.position.set(col === 0 ? -0.8 : 0.8, row === 0 ? 0.28 : -0.28, 0.012);
+    sponsorFenceGroup.add(slotBoard);
+  });
+
+  group.traverse((obj) => {
+    if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshStandardMaterial && obj.material.map) {
+      if (textures.includes(obj.material.map)) {
+        materials.push(obj.material);
+      }
+    }
+  });
+
+  return {
+    group,
+    dispose: () => {
+      textures.forEach((t) => t.dispose());
+      materials.forEach((m) => m.dispose());
+      group.traverse((obj) => {
+        if (obj instanceof THREE.Mesh) {
+          obj.geometry.dispose();
+        }
+      });
+    },
+  };
+}

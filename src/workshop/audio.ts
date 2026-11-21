@@ -270,6 +270,76 @@ class WorkshopAudio {
       osc.stop(t + 0.58);
     });
   }
+
+  public playPinPoke(): void {
+    if (this.muted) return;
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain) return;
+    const now = ctx.currentTime;
+    if (now - this.lastDrillTickTime < 0.16) return;
+    this.lastDrillTickTime = now;
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(720, now);
+    osc.frequency.exponentialRampToValueAtTime(240, now + 0.09);
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.linearRampToValueAtTime(0.11, now + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.11);
+  }
+
+  public playSnip(): void {
+    if (this.muted) return;
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain || !this.noiseBuffer) return;
+    const now = ctx.currentTime;
+    if (now - this.lastSawTickTime < 0.18) return;
+    this.lastSawTickTime = now;
+
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.setValueAtTime(2400, now);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.linearRampToValueAtTime(0.12, now + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.masterGain);
+    src.start(now);
+    src.stop(now + 0.11);
+  }
+
+  public playMistSpray(): void {
+    if (this.muted) return;
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain || !this.noiseBuffer) return;
+    const now = ctx.currentTime;
+
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(3200, now);
+    filter.Q.value = 1.1;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.linearRampToValueAtTime(0.14, now + 0.1);
+    gain.gain.setValueAtTime(0.11, now + 0.7);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 1.05);
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.masterGain);
+    src.start(now);
+    src.stop(now + 1.1);
+  }
 }
 
 export const workshopAudio = new WorkshopAudio();

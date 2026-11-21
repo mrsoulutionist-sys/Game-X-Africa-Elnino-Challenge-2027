@@ -46,7 +46,14 @@ service cloud.firestore {
         && (!('shadeClothInstalled' in data) || data.shadeClothInstalled is bool)
         && (!('weatherMode' in data) || data.weatherMode in ['normal', 'elnino_watch', 'heatwave'])
         && (!('litresSaved' in data) || (data.litresSaved is number && data.litresSaved >= 0 && data.litresSaved <= 1000000))
-        && (!('foodServings' in data) || (data.foodServings is int && data.foodServings >= 0 && data.foodServings <= 1000000));
+        && (!('foodServings' in data) || (data.foodServings is int && data.foodServings >= 0 && data.foodServings <= 1000000))
+        && (!('door3DripBottleType' in data) || data.door3DripBottleType == null || data.door3DripBottleType in ['clear_soda', 'green_sparkling', 'clear_water'])
+        && (!('door3DripStep' in data) || (data.door3DripStep is int && data.door3DripStep >= 0 && data.door3DripStep <= 4))
+        && (!('door3CompostContainer' in data) || data.door3CompostContainer == null || data.door3CompostContainer in ['bucket', 'crate', 'pallet'])
+        && (!('door3CompostStep' in data) || (data.door3CompostStep is int && data.door3CompostStep >= 0 && data.door3CompostStep <= 6))
+        && (!('door3CompostRejectTested' in data) || (data.door3CompostRejectTested is int && data.door3CompostRejectTested >= 0 && data.door3CompostRejectTested <= 4))
+        && (!('door3MulchMaterial' in data) || data.door3MulchMaterial == null || data.door3MulchMaterial in ['cardboard', 'newspaper'])
+        && (!('door3MulchStep' in data) || (data.door3MulchStep is int && data.door3MulchStep >= 0 && data.door3MulchStep <= 4));
     }
 
     function isValidFarmerDoc(data, pathKey) {
@@ -76,6 +83,13 @@ service cloud.firestore {
           'weatherMode',
           'litresSaved',
           'foodServings',
+          'door3DripBottleType',
+          'door3DripStep',
+          'door3CompostContainer',
+          'door3CompostStep',
+          'door3CompostRejectTested',
+          'door3MulchMaterial',
+          'door3MulchStep',
           'createdAt',
           'updatedAt'
         ])
@@ -84,7 +98,7 @@ service cloud.firestore {
         && data.farmerName is string
         && data.farmerName.size() >= 1
         && data.farmerName.size() <= 40
-        && data.activeZone in ['kitchen', 'garden']
+        && data.activeZone in ['kitchen', 'garden', 'compost']
         && data.kitchenStep is string
         && data.kitchenStep.size() >= 3
         && data.kitchenStep.size() <= 40
@@ -133,6 +147,13 @@ service cloud.firestore {
           'weatherMode',
           'litresSaved',
           'foodServings',
+          'door3DripBottleType',
+          'door3DripStep',
+          'door3CompostContainer',
+          'door3CompostStep',
+          'door3CompostRejectTested',
+          'door3MulchMaterial',
+          'door3MulchStep',
           'updatedAt'
         ]);
       allow delete: if false;

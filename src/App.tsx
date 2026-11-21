@@ -1,4 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  CompostStationModal,
+  type WorkstationTab,
+} from './components/CompostStationModal';
 import { DualTouchControls } from './components/DualTouchControls';
 import { EinsteinNarrator } from './components/EinsteinNarrator';
 import { FarmerLoginOverlay } from './components/FarmerLoginOverlay';
@@ -14,6 +18,12 @@ import {
   type FarmerProfile,
 } from './firebase/firebaseClient';
 import { workshopAudio } from './workshop/audio';
+import {
+  COMPOST_CONTAINER_OPTIONS,
+  DRIP_BOTTLE_OPTIONS,
+  MULCH_OPTIONS,
+  type Door3ProgressState,
+} from './workshop/compostData';
 import {
   getCropById,
   type CropId,
@@ -43,6 +53,7 @@ const INITIAL_HUD_STATE: WorkshopHudState = {
   completedSubSteps: 0,
   totalSubSteps: 0,
   gardenTarget: null,
+  compostTarget: null,
 };
 
 function toResilienceState(profile: FarmerProfile): GardenResilienceState {
@@ -76,6 +87,9 @@ export function App() {
   const [wickModalOpen, setWickModalOpen] = useState(false);
   const [rackPanelOpen, setRackPanelOpen] = useState(false);
   const [rackDropdownOpen, setRackDropdownOpen] = useState(false);
+  const [compostModalOpen, setCompostModalOpen] = useState(false);
+  const [compostModalTab, setCompostModalTab] = useState<WorkstationTab | undefined>(undefined);
+  const [compostDropdownOpen, setCompostDropdownOpen] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
@@ -124,6 +138,24 @@ export function App() {
         setNowMs(Date.now());
         setRackPanelOpen(true);
       },
+      onOpenCompostStation: (workstation?: 1 | 2 | 3) => {
+        setCompostModalTab(workstation);
+        setCompostModalOpen(true);
+      },
+      onDoor3Update: (updater, bonusLitres = 0, narration?: string) => {
+        persistProfileUpdate((prev) => {
+          const nextDoor3 = updater(prev.door3);
+          sceneRef.current?.syncCompostProgress(nextDoor3);
+          return {
+            ...prev,
+            door3: nextDoor3,
+            litresSaved: prev.litresSaved + bonusLitres,
+          };
+        });
+        if (narration) {
+          workshopVoiceover.speakCustom(narration);
+        }
+      },
     });
     sceneRef.current = scene;
 
@@ -153,14 +185,15 @@ export function App() {
       profileRef.current = profile;
       setFarmerProfile(profile);
       setNowMs(Date.now());
-      const announceStep = !isReturning || profile.activeZone === 'garden';
+      const announceStep = !isReturning || profile.activeZone !== 'kitchen';
       sceneRef.current?.applySavedProfile(
         profile.activeZone,
         profile.kitchenStep,
         profile.rackSize,
         profile.tiers,
         announceStep,
-        toResilienceState(profile)
+        toResilienceState(profile),
+        profile.door3
       );
       if (isReturning && profile.activeZone === 'kitchen') {
         workshopVoiceover.speakCustom(
@@ -177,6 +210,7 @@ export function App() {
   const handleLogout = useCallback(() => {
     workshopVoiceover.stop();
     setRackPanelOpen(false);
+    setCompostModalOpen(false);
     setWickModalOpen(false);
     setFarmerProfile(null);
     profileRef.current = null;
@@ -224,7 +258,14 @@ export function App() {
   }, []);
 
   const handleSwitchZone = useCallback((zone: ActiveZone) => {
+    setRackPanelOpen(false);
+    setCompostModalOpen(false);
     sceneRef.current?.switchZone(zone, true);
+    if (zone === 'compost') {
+      workshopVoiceover.speakCustom(
+        'Welcome to Door 3: Recycling & Composting Station! Walk up to each 3D bench and aim or tap to poke & bury your 2L drip bottle, layer compost, and scissor-cut cardboard mulch.'
+      );
+    }
   }, []);
 
   const handleToggleMute = useCallback(() => {
@@ -438,6 +479,30 @@ export function App() {
     });
   }, [persistProfileUpdate]);
 
+  const handleUpdateDoor3 = useCallback(
+    (
+      updater: (prev: Door3ProgressState) => Door3ProgressState,
+      bonusLitres = 0,
+      narration?: string
+    ) => {
+      workshopAudio.playPickup();
+      persistProfileUpdate((prev) => {
+        const nextDoor3 = updater(prev.door3);
+        sceneRef.current?.syncCompostProgress(nextDoor3);
+        return {
+          ...prev,
+          door3: nextDoor3,
+          litresSaved: prev.litresSaved + bonusLitres,
+        };
+      });
+      if (narration) {
+        workshopAudio.playPourAndBloom();
+        workshopVoiceover.speakCustom(narration);
+      }
+    },
+    [persistProfileUpdate]
+  );
+
   const handleBuildAnotherPipe = useCallback(() => {
     setRackPanelOpen(false);
     sceneRef.current?.startNewPipeInKitchen();
@@ -449,19 +514,25 @@ export function App() {
 
   const dualActionLabel =
     hudState.activeZone === 'garden'
-      ? hudState.gardenTarget === 'kitchen_door'
-        ? 'Enter Kitchen Lab'
-        : hudState.gardenTarget === 'jojo'
-          ? 'JoJo Rain Tank'
-          : hudState.gardenTarget === 'weather'
-            ? 'El Niño Forecast'
-            : 'Manage Rack & Crops'
-      : currentStep.actionLabel;
+      ? hudState.gardenTarget === 'compost_door'
+        ? 'Enter Door 3: Compost'
+        : hudState.gardenTarget === 'kitchen_door'
+          ? 'Enter Kitchen Lab'
+          : hudState.gardenTarget === 'jojo'
+            ? 'JoJo Rain Tank'
+            : hudState.gardenTarget === 'weather'
+              ? 'El Niño Forecast'
+              : 'Manage Rack & Crops'
+      : hudState.activeZone === 'compost'
+        ? hudState.targetLabel
+        : currentStep.actionLabel;
 
   const dualTargetLabel =
     hudState.activeZone === 'garden'
-      ? 'Walk to Rack, JoJo or Door'
-      : hudState.targetLabel;
+      ? 'Walk to Rack, JoJo or Doors'
+      : hudState.activeZone === 'compost'
+        ? hudState.targetLabel
+        : hudState.targetLabel;
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#181c20]">
@@ -499,12 +570,15 @@ export function App() {
             weatherMode={farmerProfile.weatherMode}
             shadeClothInstalled={farmerProfile.shadeClothInstalled}
             tiers={farmerProfile.tiers}
+            door3={farmerProfile.door3}
             nowMs={nowMs}
             rackDropdownOpen={rackDropdownOpen}
+            compostDropdownOpen={compostDropdownOpen}
             onToggleRackDropdown={() => {
               setNowMs(Date.now());
               setRackDropdownOpen((v) => !v);
             }}
+            onToggleCompostDropdown={() => setCompostDropdownOpen((v) => !v)}
             onSelectGrade={handleSelectGrade}
             onReplayVoiceover={handleReplayVoiceover}
             onToggleMute={handleToggleMute}
@@ -515,9 +589,66 @@ export function App() {
               setNowMs(Date.now());
               setRackPanelOpen(true);
             }}
+            onOpenCompostStation={(workstation?: 1 | 2 | 3) => {
+              setCompostModalTab(workstation);
+              setCompostModalOpen(true);
+            }}
             onSwitchZone={handleSwitchZone}
             onLogout={handleLogout}
           />
+
+          {/* Compact Non-Blocking Quick-Pick Bar for Door 3 3D Selection Steps */}
+          {hudState.activeZone === 'compost' && !hudState.isBusy && (
+            <>
+              {hudState.compostTarget === 'drip_bench' && farmerProfile.door3.dripStep === 0 && (
+                <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center justify-center gap-1.5 rounded-xl bg-slate-950/90 border border-sky-500/45 px-2.5 py-1.5 shadow-lg">
+                  <span className="text-[11px] font-mono text-sky-300 px-1">Pick 2L Bottle:</span>
+                  {DRIP_BOTTLE_OPTIONS.map((b) => (
+                    <button
+                      key={b.id}
+                      type="button"
+                      onClick={() => sceneRef.current?.selectDoor3Bottle(b.id)}
+                      className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-sky-700 text-white border border-slate-700 text-xs font-semibold cursor-pointer transition-colors"
+                    >
+                      {b.badgeText}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {hudState.compostTarget === 'compost_bay' && farmerProfile.door3.compostStep === 0 && (
+                <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center justify-center gap-1.5 rounded-xl bg-slate-950/90 border border-emerald-500/45 px-2.5 py-1.5 shadow-lg">
+                  <span className="text-[11px] font-mono text-emerald-300 px-1">Pick Container:</span>
+                  {COMPOST_CONTAINER_OPTIONS.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => sceneRef.current?.selectDoor3Container(c.id)}
+                      className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-emerald-700 text-white border border-slate-700 text-xs font-semibold cursor-pointer transition-colors"
+                    >
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {hudState.compostTarget === 'mulch_bench' && farmerProfile.door3.mulchStep === 0 && (
+                <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center justify-center gap-1.5 rounded-xl bg-slate-950/90 border border-amber-500/45 px-2.5 py-1.5 shadow-lg">
+                  <span className="text-[11px] font-mono text-amber-300 px-1">Pick Shield:</span>
+                  {MULCH_OPTIONS.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => sceneRef.current?.selectDoor3Mulch(m.id)}
+                      className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-amber-700 text-white border border-slate-700 text-xs font-semibold cursor-pointer transition-colors"
+                    >
+                      {m.id === 'cardboard' ? 'Cardboard' : 'Newspaper'}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </>
       )}
 
@@ -563,6 +694,23 @@ export function App() {
           onRefillJojo={handleRefillJojo}
           onToggleShadeCloth={handleToggleShadeCloth}
           onAdvanceWeather={handleAdvanceWeather}
+        />
+      )}
+
+      {/* Door 3: Recycling & Composting Station (3 Sequential Workstations) */}
+      {farmerProfile && (
+        <CompostStationModal
+          open={compostModalOpen}
+          initialWorkstation={compostModalTab}
+          gradeTier={gradeTier}
+          progress={farmerProfile.door3}
+          litresSaved={farmerProfile.litresSaved}
+          onClose={() => setCompostModalOpen(false)}
+          onUpdateProgress={handleUpdateDoor3}
+          onSwitchToGarden={() => {
+            setCompostModalOpen(false);
+            handleSwitchZone('garden');
+          }}
         />
       )}
 

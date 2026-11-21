@@ -2,6 +2,19 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { ActiveZone } from '../firebase/firebaseClient';
 import { workshopAudio } from './audio';
+import {
+  buildCompostStation,
+  type CompostAnchorTarget,
+  type CompostStationHandle,
+  type CompostTimedAnimKind,
+} from './compostStationBuilder';
+import {
+  DEFAULT_DOOR3_PROGRESS,
+  type CompostContainerType,
+  type Door3ProgressState,
+  type DripBottleType,
+  type MulchMaterialType,
+} from './compostData';
 import type { TierSaveState } from './crops';
 import {
   buildGardenYard,
@@ -13,6 +26,9 @@ import { buildKitchenWorkshopRoom, type AABB, type KitchenRoomHandle } from './k
 import { createWorkshopMaterials, type WorkshopMaterials } from './materials';
 import { BUILD_STEPS, type BuildStepId, type GradeTier, type ToolId } from './steps';
 import { workshopVoiceover } from './voiceover';
+
+export type GardenTargetKind = 'rack' | 'jojo' | 'weather' | 'kitchen_door' | 'compost_door' | null;
+export type CompostTargetKind = CompostAnchorTarget | null;
 
 export interface WorkshopHudState {
   activeZone: ActiveZone;
@@ -28,7 +44,8 @@ export interface WorkshopHudState {
   subProgress: number;
   completedSubSteps: number;
   totalSubSteps: number;
-  gardenTarget: 'rack' | 'jojo' | 'weather' | 'kitchen_door' | null;
+  gardenTarget: GardenTargetKind;
+  compostTarget: CompostTargetKind;
 }
 
 const ROOM_BOUNDS = {
@@ -54,6 +71,12 @@ export interface SceneCallbacks {
   onKitchenStepPersisted: (step: BuildStepId) => void;
   onZoneChanged: (zone: ActiveZone) => void;
   onOpenRackManager: () => void;
+  onOpenCompostStation: (workstation?: 1 | 2 | 3) => void;
+  onDoor3Update: (
+    updater: (prev: Door3ProgressState) => Door3ProgressState,
+    bonusLitres?: number,
+    narration?: string
+  ) => void;
 }
 
 export class KitchenWorkshopScene {
@@ -69,6 +92,7 @@ export class KitchenWorkshopScene {
   private room!: KitchenRoomHandle;
   private rig!: HydroponicRigHandle;
   private garden!: GardenYardHandle;
+  private compost!: CompostStationHandle;
 
   private isSoftwareGl = false;
   private disposed = false;
@@ -93,7 +117,9 @@ export class KitchenWorkshopScene {
   private isFillingSink = false;
   private cutawayMode = false;
   private busyTimeoutId: number | null = null;
-  private gardenTarget: 'rack' | 'jojo' | 'weather' | 'kitchen_door' | null = null;
+  private gardenTarget: GardenTargetKind = null;
+  private compostTarget: CompostTargetKind = null;
+  private door3Progress: Door3ProgressState = { ...DEFAULT_DOOR3_PROGRESS };
   private resilience: GardenResilienceState = {
     jojoInstalled: false,
     jojoLitres: 18,
@@ -113,7 +139,8 @@ export class KitchenWorkshopScene {
   private lastAligned = false;
   private lastCompletedSub = -1;
   private lastEmittedProgress = -1;
-  private lastGardenTarget: 'rack' | 'jojo' | 'weather' | 'kitchen_door' | null = null;
+  private lastGardenTarget: GardenTargetKind = null;
+  private lastCompostTarget: CompostTargetKind = null;
 
   // Pre-allocated math helpers
   private readonly forwardVec = new THREE.Vector3();
@@ -241,6 +268,10 @@ export class KitchenWorkshopScene {
     this.garden = buildGardenYard(this.mats, maxAniso);
     this.garden.group.visible = false;
     this.scene.add(this.garden.group);
+
+    this.compost = buildCompostStation(this.mats, maxAniso);
+    this.compost.group.visible = false;
+    this.scene.add(this.compost.group);
   }
 
   private bindEvents(): void {
@@ -278,7 +309,7 @@ export class KitchenWorkshopScene {
 
     if (code === 'KeyE' || code === 'Space') {
       e.preventDefault();
-      if (this.activeZone === 'kitchen' && this.isManualAimStep()) {
+      if (this.isManualAimStep()) {
         this.actionHeld = true;
       } else if (!e.repeat) {
         this.triggerCurrentAction();
@@ -310,11 +341,15 @@ export class KitchenWorkshopScene {
     rackSize: number,
     tiers: TierSaveState[],
     announce: boolean,
-    resilience?: GardenResilienceState
+    resilience?: GardenResilienceState,
+    door3Progress?: Door3ProgressState
   ): void {
     this.stepId = kitchenStep;
     if (resilience) {
       this.resilience = resilience;
+    }
+    if (door3Progress) {
+      this.door3Progress = door3Progress;
     }
     this.toolId =
       kitchenStep === 'CUT_AND_ASSEMBLE_PVC'
@@ -332,15 +367,20 @@ export class KitchenWorkshopScene {
     this.room.setActiveStepVisuals(this.stepId, false);
     this.rig.setStepState(this.stepId, this.cutawayMode);
     this.garden.setGardenState(rackSize, tiers, this.cutawayMode, this.resilience);
+    this.compost.setProgress(this.door3Progress);
     this.switchZone(zone, false);
     this.emitState(true);
 
     if (announce) {
       if (zone === 'kitchen') {
         workshopVoiceover.speakStep(this.stepId, true);
-      } else {
+      } else if (zone === 'garden') {
         workshopVoiceover.speakCustom(
           'Welcome back to your Outdoor Garden Yard! Inspect your vertical rack, JoJo rainwater tank, and El Niño forecast station.'
+        );
+      } else {
+        workshopVoiceover.speakCustom(
+          'Welcome to Door 3: Recycling & Composting Station! Prevention is better than cure—build a 2L drip bottle, compost pile, and mulch shield.'
         );
       }
     }
@@ -353,11 +393,65 @@ export class KitchenWorkshopScene {
   ): void {
     if (resilience) {
       this.resilience = resilience;
-      if (this.activeZone === 'garden') {
+      if (this.activeZone === 'garden' || this.activeZone === 'compost') {
         this.applyGardenAtmosphere();
       }
     }
     this.garden.setGardenState(rackSize, tiers, this.cutawayMode, this.resilience);
+  }
+
+  public syncCompostProgress(progress: Door3ProgressState): void {
+    this.door3Progress = progress;
+    this.compost.setProgress(progress);
+    this.emitState(true);
+  }
+
+  public selectDoor3Bottle(bottleId: DripBottleType): void {
+    if (this.isBusy) return;
+    workshopAudio.playPickup();
+    this.compost.startActionAnim('ws1_bottle_select');
+    this.callbacks.onDoor3Update((prev) => ({
+      ...prev,
+      dripBottleType: bottleId,
+      dripStep: Math.max(prev.dripStep, 1),
+    }));
+  }
+
+  public selectDoor3Container(containerId: CompostContainerType): void {
+    if (this.isBusy) return;
+    workshopAudio.playSnapComplete();
+    this.compost.startActionAnim('ws2_container');
+    this.callbacks.onDoor3Update((prev) => ({
+      ...prev,
+      compostContainer: containerId,
+      compostStep: Math.max(prev.compostStep, 1),
+    }));
+  }
+
+  public selectDoor3Mulch(mulchId: MulchMaterialType): void {
+    if (this.isBusy) return;
+    workshopAudio.playPickup();
+    this.callbacks.onDoor3Update((prev) => ({
+      ...prev,
+      mulchMaterial: mulchId,
+      mulchStep: Math.max(prev.mulchStep, 1),
+    }));
+  }
+
+  private playDoor3TimedStep(
+    animKind: CompostTimedAnimKind,
+    durationMs: number,
+    updater: (prev: Door3ProgressState) => Door3ProgressState,
+    bonusLitres = 0,
+    narration?: string
+  ): void {
+    this.isBusy = true;
+    this.emitState(true);
+    this.compost.startActionAnim(animKind);
+    this.scheduleStepCompletion(durationMs, () => {
+      this.callbacks.onDoor3Update(updater, bonusLitres, narration);
+      this.emitState(true);
+    });
   }
 
   private applyGardenAtmosphere(): void {
@@ -374,10 +468,13 @@ export class KitchenWorkshopScene {
   public switchZone(zone: ActiveZone, persist = true): void {
     this.activeZone = zone;
     const isKitchen = zone === 'kitchen';
+    const isGarden = zone === 'garden';
+    const isCompost = zone === 'compost';
 
     this.room.group.visible = isKitchen;
     this.rig.group.visible = isKitchen;
-    this.garden.group.visible = !isKitchen;
+    this.garden.group.visible = isGarden;
+    this.compost.group.visible = isCompost;
 
     if (isKitchen) {
       this.scene.background = new THREE.Color(0x212830);
@@ -445,7 +542,7 @@ export class KitchenWorkshopScene {
       workshopVoiceover.unlockAndSpeakPending();
     }
     this.actionHeld = held;
-    if (held && (this.activeZone === 'garden' || !this.isManualAimStep())) {
+    if (held && !this.isManualAimStep()) {
       this.triggerCurrentAction();
     }
   }
@@ -457,8 +554,56 @@ export class KitchenWorkshopScene {
     if (this.activeZone === 'garden') {
       if (this.gardenTarget === 'kitchen_door') {
         this.switchZone('kitchen', true);
+      } else if (this.gardenTarget === 'compost_door') {
+        this.switchZone('compost', true);
       } else if (this.gardenTarget !== null) {
         this.callbacks.onOpenRackManager();
+      }
+      return;
+    }
+
+    if (this.activeZone === 'compost') {
+      if (this.isBusy) return;
+      const rect = this.renderer.domElement.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        this.ndcPointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+        this.ndcPointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+        this.raycaster.setFromCamera(this.ndcPointer, this.camera);
+        const hits = this.raycaster.intersectObjects(this.compost.interactableObjects, true);
+        if (hits.length > 0) {
+          const ud = hits[0].object.userData;
+          if (ud.compostAction === 'garden_door' && this.compostTarget === 'garden_door') {
+            this.switchZone('garden', true);
+            return;
+          }
+          if (ud.compostAction === 'select_bottle' && this.compostTarget === 'drip_bench') {
+            this.selectDoor3Bottle(ud.bottleId as DripBottleType);
+            return;
+          }
+          if (ud.compostAction === 'select_container' && this.compostTarget === 'compost_bay') {
+            this.selectDoor3Container(ud.containerId as CompostContainerType);
+            return;
+          }
+          if (ud.compostAction === 'select_mulch' && this.compostTarget === 'mulch_bench') {
+            this.selectDoor3Mulch(ud.mulchId as MulchMaterialType);
+            return;
+          }
+          if (
+            (ud.compostAction === 'ws1_bed' && this.compostTarget === 'drip_bench') ||
+            (ud.compostAction === 'ws2_bay' && this.compostTarget === 'compost_bay') ||
+            (ud.compostAction === 'ws3_bed' && this.compostTarget === 'mulch_bench')
+          ) {
+            if (!this.isManualAimStep()) {
+              this.triggerCurrentAction();
+            }
+            return;
+          }
+        }
+      }
+      if (this.compostTarget === 'garden_door') {
+        this.switchZone('garden', true);
+      } else if (this.compostTarget !== null && !this.isManualAimStep()) {
+        this.triggerCurrentAction();
       }
       return;
     }
@@ -505,7 +650,13 @@ export class KitchenWorkshopScene {
     workshopVoiceover.unlockAndSpeakPending();
     if (this.activeZone === 'garden') {
       workshopVoiceover.speakCustom(
-        'Here in the Garden Yard, choose a 2 to 6 tier stand, deploy each PVC pipe you fabricate, plant from 10 El Niño-resilient seeds, and check back anytime as your crops grow!'
+        'Here in the Garden Yard, choose a 2 to 6 tier stand, deploy each PVC pipe you fabricate, plant from 10 El Niño-resilient seeds, or head through Door 3 to build drip bottles, compost, and mulch!'
+      );
+      return;
+    }
+    if (this.activeZone === 'compost') {
+      workshopVoiceover.speakCustom(
+        'Prevention is better than cure! Complete all 3 Door 3 workstations: punch & bury a 2L drip-feeder, layer a 2:1 Brown-to-Green composter, and lock in moisture with cardboard & leaf mulch.'
       );
       return;
     }
@@ -541,9 +692,119 @@ export class KitchenWorkshopScene {
     if (this.activeZone === 'garden') {
       if (this.gardenTarget === 'kitchen_door') {
         this.switchZone('kitchen', true);
+      } else if (this.gardenTarget === 'compost_door') {
+        this.switchZone('compost', true);
       } else {
         this.callbacks.onOpenRackManager();
       }
+      return;
+    }
+
+    if (this.activeZone === 'compost') {
+      if (this.compostTarget === 'garden_door') {
+        this.switchZone('garden', true);
+        return;
+      }
+      if (this.compostTarget === 'drip_bench') {
+        const s = this.door3Progress.dripStep;
+        if (s === 0) {
+          this.selectDoor3Bottle('clear_soda');
+        } else if (s === 2) {
+          workshopAudio.playPlanting();
+          this.playDoor3TimedStep(
+            'ws1_bury',
+            1150,
+            (prev) => ({ ...prev, dripStep: Math.max(prev.dripStep, 3) }),
+            0,
+            'Half the bottle is now buried beside the roots! Next, fill it with water and screw the pinhole cap.'
+          );
+        } else if (s === 3) {
+          workshopAudio.playPourAndBloom();
+          this.playDoor3TimedStep(
+            'ws1_pour_cap',
+            1350,
+            (prev) => ({ ...prev, dripStep: 4 }),
+            12,
+            'Workstation 1 complete! Underground root dripping cuts El Niño surface evaporation by up to 70%.'
+          );
+        } else if (s >= 4) {
+          this.callbacks.onOpenCompostStation(1);
+        }
+        return;
+      }
+      if (this.compostTarget === 'compost_bay') {
+        const s = this.door3Progress.compostStep;
+        if (s === 0) {
+          this.selectDoor3Container('crate');
+        } else if (s === 1) {
+          workshopAudio.playPlanting();
+          this.playDoor3TimedStep(
+            'ws2_gather',
+            850,
+            (prev) => ({ ...prev, compostStep: Math.max(prev.compostStep, 2) }),
+            0,
+            'Greens from Door 1 Kitchen and Browns from Door 2 Yard are staged! Now layer twigs at the base.'
+          );
+        } else if (s === 2) {
+          workshopAudio.playPickup();
+          this.playDoor3TimedStep('ws2_twigs', 850, (prev) => ({
+            ...prev,
+            compostStep: Math.max(prev.compostStep, 3),
+          }));
+        } else if (s === 3) {
+          workshopAudio.playPlanting();
+          this.playDoor3TimedStep('ws2_greens', 850, (prev) => ({
+            ...prev,
+            compostStep: Math.max(prev.compostStep, 4),
+          }));
+        } else if (s === 4) {
+          workshopAudio.playPlanting();
+          this.playDoor3TimedStep('ws2_browns', 850, (prev) => ({
+            ...prev,
+            compostStep: Math.max(prev.compostStep, 5),
+          }));
+        } else if (s === 5) {
+          workshopAudio.playMistSpray();
+          this.playDoor3TimedStep(
+            'ws2_mist',
+            1150,
+            (prev) => ({ ...prev, compostStep: 6 }),
+            10,
+            'Workstation 2 complete! Your 2:1 Browns-to-Greens pile stays aerobic, damp, and sweet-smelling.'
+          );
+        } else {
+          this.callbacks.onOpenCompostStation(2);
+        }
+        return;
+      }
+      if (this.compostTarget === 'mulch_bench') {
+        const s = this.door3Progress.mulchStep;
+        if (s === 0) {
+          this.selectDoor3Mulch('cardboard');
+        } else if (s === 2) {
+          workshopAudio.playSnapComplete();
+          this.playDoor3TimedStep(
+            'ws3_place_collar',
+            900,
+            (prev) => ({ ...prev, mulchStep: Math.max(prev.mulchStep, 3) }),
+            0,
+            'Collar wrapped neatly around the plant stem beside the drip bottle! Cover it with dry leaves to anchor it.'
+          );
+        } else if (s === 3) {
+          workshopAudio.playPourAndBloom();
+          this.playDoor3TimedStep(
+            'ws3_scatter_leaves',
+            1150,
+            (prev) => ({ ...prev, mulchStep: 4 }),
+            18,
+            'All 3 Door 3 workstations complete! Prevention is better than cure—roots stay fed, dripped, and sun-shielded.'
+          );
+        } else if (s >= 4) {
+          this.callbacks.onOpenCompostStation(3);
+        }
+        return;
+      }
+      this.callbacks.onOpenCompostStation();
       return;
     }
 
@@ -618,7 +879,16 @@ export class KitchenWorkshopScene {
   }
 
   private isManualAimStep(): boolean {
-    return this.stepId === 'CUT_AND_ASSEMBLE_PVC' || this.stepId === 'DRILL_PORTS';
+    if (this.activeZone === 'kitchen') {
+      return this.stepId === 'CUT_AND_ASSEMBLE_PVC' || this.stepId === 'DRILL_PORTS';
+    }
+    if (this.activeZone === 'compost') {
+      return (
+        (this.compostTarget === 'drip_bench' && this.door3Progress.dripStep === 1) ||
+        (this.compostTarget === 'mulch_bench' && this.door3Progress.mulchStep === 1)
+      );
+    }
+    return false;
   }
 
   private scheduleStepCompletion(delayMs: number, fn: () => void): void {
@@ -652,6 +922,9 @@ export class KitchenWorkshopScene {
     if (this.activeZone === 'garden') {
       return this.gardenTarget !== null;
     }
+    if (this.activeZone === 'compost') {
+      return this.compostTarget !== null;
+    }
     const zoneId = BUILD_STEPS[this.stepId].targetZone;
     const anchor = this.room.targetZones[zoneId];
     const dx = this.camera.position.x - anchor.position.x;
@@ -680,7 +953,13 @@ export class KitchenWorkshopScene {
       this.camera.position.x - this.garden.kitchenDoorAnchor.x,
       this.camera.position.z - this.garden.kitchenDoorAnchor.z
     );
-    if (distDoor <= 2.1) {
+    const distCompostDoor = Math.hypot(
+      this.camera.position.x - this.garden.compostDoorAnchor.x,
+      this.camera.position.z - this.garden.compostDoorAnchor.z
+    );
+    if (distCompostDoor <= 2.1) {
+      this.gardenTarget = 'compost_door';
+    } else if (distDoor <= 2.1) {
       this.gardenTarget = 'kitchen_door';
     } else if (distJojo <= 2.35) {
       this.gardenTarget = 'jojo';
@@ -693,14 +972,94 @@ export class KitchenWorkshopScene {
     }
   }
 
+  private updateCompostProximity(): void {
+    if (this.activeZone !== 'compost') {
+      this.compostTarget = null;
+      return;
+    }
+    const distDrip = Math.hypot(
+      this.camera.position.x - this.compost.anchors.drip_bench.x,
+      this.camera.position.z - this.compost.anchors.drip_bench.z
+    );
+    const distCompost = Math.hypot(
+      this.camera.position.x - this.compost.anchors.compost_bay.x,
+      this.camera.position.z - this.compost.anchors.compost_bay.z
+    );
+    const distMulch = Math.hypot(
+      this.camera.position.x - this.compost.anchors.mulch_bench.x,
+      this.camera.position.z - this.compost.anchors.mulch_bench.z
+    );
+    const distGardenDoor = Math.hypot(
+      this.camera.position.x - this.compost.anchors.garden_door.x,
+      this.camera.position.z - this.compost.anchors.garden_door.z
+    );
+
+    if (distGardenDoor <= 2.1) {
+      this.compostTarget = 'garden_door';
+    } else if (distDrip <= 2.35) {
+      this.compostTarget = 'drip_bench';
+    } else if (distCompost <= 2.45) {
+      this.compostTarget = 'compost_bay';
+    } else if (distMulch <= 2.35) {
+      this.compostTarget = 'mulch_bench';
+    } else {
+      this.compostTarget = null;
+    }
+  }
+
   private updateManualAimAndTool(dt: number): void {
-    if (this.activeZone !== 'kitchen' || !this.isManualAimStep()) {
+    if (!this.isManualAimStep()) {
       this.alignedTargetIndex = null;
       this.subProgress = 0;
+      this.completedSubSteps = 0;
+      this.totalSubSteps = 0;
       return;
     }
 
     const inRange = this.checkInRange();
+    if (this.activeZone === 'compost') {
+      if (inRange) {
+        const targets = this.compost.getRaycastTargets(this.door3Progress);
+        this.raycaster.setFromCamera(this.centerNdc, this.camera);
+        this.raycaster.far = 4.2;
+        const hits = this.raycaster.intersectObjects(targets, false);
+        this.alignedTargetIndex =
+          hits.length > 0 ? (hits[0].object.userData.targetIndex as number) : null;
+        this.raycaster.far = Infinity;
+      } else {
+        this.alignedTargetIndex = null;
+      }
+
+      const res = this.compost.stepManualTool(
+        this.door3Progress,
+        dt,
+        this.worldTime,
+        this.alignedTargetIndex,
+        inRange && this.actionHeld
+      );
+      this.subProgress = res.subProgress;
+      this.completedSubSteps = res.completedCount;
+      this.totalSubSteps = res.totalCount;
+
+      if (res.stepDone) {
+        this.actionHeld = false;
+        if (this.compostTarget === 'drip_bench' && this.door3Progress.dripStep === 1) {
+          this.callbacks.onDoor3Update(
+            (prev) => ({ ...prev, dripStep: Math.max(prev.dripStep, 2) }),
+            0,
+            '3 pinholes pierced! Next, bury the bottom half of the bottle right next to the plant roots.'
+          );
+        } else if (this.compostTarget === 'mulch_bench' && this.door3Progress.mulchStep === 1) {
+          this.callbacks.onDoor3Update(
+            (prev) => ({ ...prev, mulchStep: Math.max(prev.mulchStep, 2) }),
+            0,
+            'Plant collar and center slit cut! Wrap it flat around the stem next to your drip bottle.'
+          );
+        }
+      }
+      return;
+    }
+
     if (inRange) {
       const targets = this.rig.getRaycastTargets();
       this.raycaster.setFromCamera(this.centerNdc, this.camera);
@@ -733,6 +1092,37 @@ export class KitchenWorkshopScene {
     }
   }
 
+  private getCompostActionLabel(): string {
+    if (this.compostTarget === 'garden_door') return 'Back to Door 2 Garden';
+    if (this.compostTarget === 'drip_bench') {
+      const s = this.door3Progress.dripStep;
+      if (s === 0) return 'Pick 2L Bottle';
+      if (s === 1) return 'Hold: Poke Pinhole';
+      if (s === 2) return 'Bury Next to Roots';
+      if (s === 3) return 'Pour Water & Cap';
+      return 'View 2L Drip Guide';
+    }
+    if (this.compostTarget === 'compost_bay') {
+      const s = this.door3Progress.compostStep;
+      if (s === 0) return 'Place Composter';
+      if (s === 1) return 'Gather Greens & Browns';
+      if (s === 2) return 'Add Twigs Base';
+      if (s === 3) return 'Add 1 Part Greens';
+      if (s === 4) return 'Add 2 Parts Browns';
+      if (s === 5) return 'Mist Compost Pile';
+      return 'Check Avoid Traps';
+    }
+    if (this.compostTarget === 'mulch_bench') {
+      const s = this.door3Progress.mulchStep;
+      if (s === 0) return 'Pick Cardboard / Paper';
+      if (s === 1) return 'Hold: Cut Slit Collar';
+      if (s === 2) return 'Place Around Stem';
+      if (s === 3) return 'Cover with Dry Leaves';
+      return 'View Mulch Shield';
+    }
+    return 'Walk to a Workstation';
+  }
+
   private emitState(force = false): void {
     const inRange = this.checkInRange();
     const reticleAligned = this.alignedTargetIndex !== null && inRange;
@@ -744,6 +1134,7 @@ export class KitchenWorkshopScene {
       reticleAligned === this.lastAligned &&
       this.completedSubSteps === this.lastCompletedSub &&
       this.gardenTarget === this.lastGardenTarget &&
+      this.compostTarget === this.lastCompostTarget &&
       !progressChanged
     ) {
       return;
@@ -754,22 +1145,27 @@ export class KitchenWorkshopScene {
     this.lastCompletedSub = this.completedSubSteps;
     this.lastEmittedProgress = this.subProgress;
     this.lastGardenTarget = this.gardenTarget;
+    this.lastCompostTarget = this.compostTarget;
 
     const stepDef = BUILD_STEPS[this.stepId];
     const cutawayAvailable =
       this.activeZone === 'garden' ||
-      (this.stepId !== 'GET_SAW' && this.stepId !== 'CUT_AND_ASSEMBLE_PVC');
+      (this.activeZone === 'kitchen' && this.stepId !== 'GET_SAW' && this.stepId !== 'CUT_AND_ASSEMBLE_PVC');
 
     const targetLabel =
       this.activeZone === 'garden'
-        ? this.gardenTarget === 'kitchen_door'
-          ? 'Enter Kitchen Lab'
-          : this.gardenTarget === 'jojo'
-            ? 'JoJo Rain Tank'
-            : this.gardenTarget === 'weather'
-              ? 'El Niño Forecast'
-              : 'Manage Rack & Crops'
-        : this.room.targetZones[stepDef.targetZone].label;
+        ? this.gardenTarget === 'compost_door'
+          ? 'Enter Door 3: Compost'
+          : this.gardenTarget === 'kitchen_door'
+            ? 'Enter Kitchen Lab'
+            : this.gardenTarget === 'jojo'
+              ? 'JoJo Rain Tank'
+              : this.gardenTarget === 'weather'
+                ? 'El Niño Forecast'
+                : 'Manage Rack & Crops'
+        : this.activeZone === 'compost'
+          ? this.getCompostActionLabel()
+          : this.room.targetZones[stepDef.targetZone].label;
 
     this.callbacks.onHudChange({
       activeZone: this.activeZone,
@@ -780,12 +1176,13 @@ export class KitchenWorkshopScene {
       cutawayMode: this.cutawayMode,
       cutawayAvailable,
       targetLabel,
-      manualAimMode: this.activeZone === 'kitchen' && this.isManualAimStep(),
+      manualAimMode: this.isManualAimStep(),
       reticleAligned,
       subProgress: this.subProgress,
       completedSubSteps: this.completedSubSteps,
       totalSubSteps: this.totalSubSteps,
       gardenTarget: this.gardenTarget,
+      compostTarget: this.compostTarget,
     });
   }
 
@@ -808,7 +1205,12 @@ export class KitchenWorkshopScene {
     if (mag < 0.01) return;
 
     const bounds = this.activeZone === 'kitchen' ? ROOM_BOUNDS : GARDEN_BOUNDS;
-    const colliders = this.activeZone === 'kitchen' ? this.room.colliders : this.garden.colliders;
+    const colliders =
+      this.activeZone === 'kitchen'
+        ? this.room.colliders
+        : this.activeZone === 'garden'
+          ? this.garden.colliders
+          : this.compost.colliders;
 
     this.forwardVec.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
     this.rightVec.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
@@ -915,9 +1317,13 @@ export class KitchenWorkshopScene {
       this.updateManualAimAndTool(dt);
       this.room.update(this.worldTime, this.isFillingSink);
       this.rig.update(dt, this.worldTime);
-    } else {
+    } else if (this.activeZone === 'garden') {
       this.updateGardenProximity();
       this.garden.update(this.worldTime, Date.now());
+    } else {
+      this.updateCompostProximity();
+      this.updateManualAimAndTool(dt);
+      this.compost.update(dt, this.worldTime);
     }
     this.emitState(false);
 
@@ -944,6 +1350,7 @@ export class KitchenWorkshopScene {
     this.room.dispose();
     this.rig.dispose();
     this.garden.dispose();
+    this.compost.dispose();
     this.mats.dispose();
     this.envRenderTarget.dispose();
     this.pmremGenerator.dispose();

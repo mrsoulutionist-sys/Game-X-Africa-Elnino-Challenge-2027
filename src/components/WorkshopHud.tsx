@@ -13,7 +13,14 @@ import {
   ChevronDown,
   ChevronUp,
   Clock,
+  Recycle,
+  CheckCircle2,
 } from 'lucide-react';
+import type { ActiveZone } from '../firebase/firebaseClient';
+import {
+  countDoor3CompletedWorkstations,
+  type Door3ProgressState,
+} from '../workshop/compostData';
 import type { WorkshopHudState } from '../workshop/KitchenWorkshopScene';
 import {
   WEATHER_FORECASTS,
@@ -34,9 +41,12 @@ interface WorkshopHudProps {
   weatherMode: WeatherMode;
   shadeClothInstalled: boolean;
   tiers: TierSaveState[];
+  door3: Door3ProgressState;
   nowMs: number;
   rackDropdownOpen: boolean;
+  compostDropdownOpen: boolean;
   onToggleRackDropdown: () => void;
+  onToggleCompostDropdown: () => void;
   onSelectGrade: (tier: GradeTier) => void;
   onReplayVoiceover: () => void;
   onToggleMute: () => void;
@@ -44,7 +54,8 @@ interface WorkshopHudProps {
   onReset: () => void;
   onOpenWickExplainer: () => void;
   onOpenRackManager: () => void;
-  onSwitchZone: (zone: 'kitchen' | 'garden') => void;
+  onOpenCompostStation: (workstation?: 1 | 2 | 3) => void;
+  onSwitchZone: (zone: ActiveZone) => void;
   onLogout: () => void;
 }
 
@@ -64,9 +75,12 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
   weatherMode,
   shadeClothInstalled,
   tiers,
+  door3,
   nowMs,
   rackDropdownOpen,
+  compostDropdownOpen,
   onToggleRackDropdown,
+  onToggleCompostDropdown,
   onSelectGrade,
   onReplayVoiceover,
   onToggleMute,
@@ -74,12 +88,16 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
   onReset,
   onOpenWickExplainer,
   onOpenRackManager,
+  onOpenCompostStation,
   onSwitchZone,
   onLogout,
 }) => {
   const step = BUILD_STEPS[hudState.stepId];
   const isKitchen = hudState.activeZone === 'kitchen';
+  const isGarden = hudState.activeZone === 'garden';
+  const isCompost = hudState.activeZone === 'compost';
   const isComplete = hudState.stepId === 'COMPLETE';
+  const door3DoneCount = countDoor3CompletedWorkstations(door3);
   const ringCircumference = 2 * Math.PI * 16;
   const ringOffset = ringCircumference * (1 - hudState.subProgress);
 
@@ -87,7 +105,7 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
     <>
       {/* Center Aiming Reticle */}
       <div className="fixed inset-0 pointer-events-none z-20 flex items-center justify-center">
-        {isKitchen && hudState.manualAimMode && hudState.inRange ? (
+        {hudState.manualAimMode && hudState.inRange ? (
           <div className="relative flex flex-col items-center justify-center">
             <svg width="44" height="44" viewBox="0 0 44 44" className="-rotate-90">
               <circle
@@ -129,8 +147,8 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
         )}
       </div>
 
-      {/* Top-Left Compact Zone, Quick Switch & Collapsible Live Crop Progress Dropdown */}
-      <div className="fixed top-4 left-4 z-20 flex flex-col items-start gap-2 pointer-events-auto max-w-[65vw]">
+      {/* Top-Left Compact Zone, Quick 3-Door Switcher & Collapsible Dropdowns */}
+      <div className="fixed top-4 left-4 z-20 flex flex-col items-start gap-2 pointer-events-auto max-w-[70vw]">
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -153,47 +171,76 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
                   </span>
                 )}
               </>
-            ) : (
+            ) : isGarden ? (
               <>
                 <span className="text-xs font-mono font-semibold text-emerald-400">
-                  GARDEN YARD
+                  DOOR 2 · GARDEN
                 </span>
                 <span className="text-xs sm:text-sm font-semibold text-white">
                   {WEATHER_FORECASTS[weatherMode].label}
                 </span>
               </>
-            )}
-          </button>
-
-          {/* Quick Zone Shortcut */}
-          <button
-            type="button"
-            onClick={() => onSwitchZone(isKitchen ? 'garden' : 'kitchen')}
-            className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold border shadow-lg transition-colors cursor-pointer ${
-              isKitchen && isComplete
-                ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-400'
-                : 'bg-slate-950/90 hover:bg-slate-900 text-slate-200 border-slate-700/80'
-            }`}
-          >
-            {isKitchen ? (
-              <>
-                <Trees className="w-3.5 h-3.5 text-emerald-300" />
-                <span>Garden Yard</span>
-                {readyPipeCount > 0 && (
-                  <span className="ml-0.5 px-1.5 py-0.5 rounded bg-emerald-500/25 text-emerald-200 font-mono text-[10px]">
-                    Pipe Ready
-                  </span>
-                )}
-              </>
             ) : (
               <>
-                <Hammer className="w-3.5 h-3.5 text-amber-300" />
-                <span>Kitchen Lab</span>
+                <span className="text-xs font-mono font-semibold text-amber-300">
+                  DOOR 3 · COMPOST
+                </span>
+                <span className="text-xs sm:text-sm font-semibold text-white tabular-nums">
+                  {door3DoneCount}/3 Done
+                </span>
               </>
             )}
           </button>
 
+          {/* Door 1: Kitchen */}
           {!isKitchen && (
+            <button
+              type="button"
+              onClick={() => onSwitchZone('kitchen')}
+              className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold border bg-slate-950/90 hover:bg-slate-900 text-slate-200 border-slate-700/80 shadow-lg transition-colors cursor-pointer"
+            >
+              <Hammer className="w-3.5 h-3.5 text-amber-300" />
+              <span>Door 1: Kitchen</span>
+            </button>
+          )}
+
+          {/* Door 2: Garden Yard */}
+          {!isGarden && (
+            <button
+              type="button"
+              onClick={() => onSwitchZone('garden')}
+              className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold border shadow-lg transition-colors cursor-pointer ${
+                isKitchen && isComplete
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-400'
+                  : 'bg-slate-950/90 hover:bg-slate-900 text-slate-200 border-slate-700/80'
+              }`}
+            >
+              <Trees className="w-3.5 h-3.5 text-emerald-300" />
+              <span>Door 2: Garden</span>
+              {readyPipeCount > 0 && isKitchen && (
+                <span className="ml-0.5 px-1.5 py-0.5 rounded bg-emerald-500/25 text-emerald-200 font-mono text-[10px]">
+                  Pipe Ready
+                </span>
+              )}
+            </button>
+          )}
+
+          {/* Door 3: Recycling & Composting Station */}
+          {!isCompost && (
+            <button
+              type="button"
+              onClick={() => onSwitchZone('compost')}
+              className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold border bg-slate-950/90 hover:bg-slate-900 text-slate-200 border-amber-500/45 shadow-lg transition-colors cursor-pointer"
+            >
+              <Recycle className="w-3.5 h-3.5 text-amber-300" />
+              <span>Door 3: Compost</span>
+              <span className="ml-0.5 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-200 font-mono text-[10px] tabular-nums">
+                {door3DoneCount}/3
+              </span>
+            </button>
+          )}
+
+          {isGarden && (
             <>
               <button
                 type="button"
@@ -223,10 +270,38 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
               </button>
             </>
           )}
+
+          {isCompost && (
+            <>
+              <button
+                type="button"
+                onClick={() => onOpenCompostStation()}
+                className="flex items-center gap-1.5 rounded-xl bg-slate-950/90 hover:bg-slate-900 text-emerald-300 border border-emerald-500/45 px-3 py-2 text-xs font-semibold shadow-lg transition-colors cursor-pointer"
+              >
+                <Recycle className="w-3.5 h-3.5" />
+                <span>Guide &amp; Sort Check</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={onToggleCompostDropdown}
+                aria-expanded={compostDropdownOpen}
+                className="flex items-center gap-1.5 rounded-xl bg-slate-950/90 hover:bg-slate-900 text-slate-100 border border-slate-700/80 px-3 py-2 text-xs font-semibold shadow-lg transition-colors cursor-pointer"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Station Checklist</span>
+                {compostDropdownOpen ? (
+                  <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                )}
+              </button>
+            </>
+          )}
         </div>
 
-        {/* Collapsible Live Crop Progress Dropdown Overlay */}
-        {!isKitchen && rackDropdownOpen && (
+        {/* Collapsible Live Crop Progress Dropdown Overlay (Door 2) */}
+        {isGarden && rackDropdownOpen && (
           <div className="w-72 sm:w-80 rounded-xl bg-slate-950/95 border border-emerald-500/40 p-3 shadow-2xl space-y-2">
             <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider text-emerald-400">
               <span>Live Wall-Clock Rack Status</span>
@@ -264,6 +339,65 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {/* Collapsible Door 3 Workstation Checklist Dropdown */}
+        {isCompost && compostDropdownOpen && (
+          <div className="w-72 sm:w-80 rounded-xl bg-slate-950/95 border border-amber-500/40 p-3 shadow-2xl space-y-2">
+            <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider text-amber-300">
+              <span>Door 3 Eco-Shield Checklist</span>
+              <span className="text-emerald-400 tabular-nums">{door3DoneCount}/3 Done</span>
+            </div>
+            <div className="space-y-1.5">
+              {[
+                {
+                  tab: 1 as const,
+                  title: '1 · 2L Bottle Drip-Feeder',
+                  done: door3.dripStep >= 4,
+                  unlocked: true,
+                  status: door3.dripStep >= 4 ? 'Active Root Drip' : `Step ${door3.dripStep}/4`,
+                },
+                {
+                  tab: 2 as const,
+                  title: '2 · Bucket / Crate / Pallet Composter',
+                  done: door3.compostStep >= 6,
+                  unlocked: true,
+                  status:
+                    door3.compostStep >= 6
+                      ? '2:1 Layered & Misted'
+                      : `Step ${door3.compostStep}/6`,
+                },
+                {
+                  tab: 3 as const,
+                  title: '3 · Cardboard Mulch Shield',
+                  done: door3.mulchStep >= 4,
+                  unlocked: true,
+                  status:
+                    door3.mulchStep >= 4
+                      ? 'Leaf-Anchored Collar'
+                      : `Step ${door3.mulchStep}/4`,
+                },
+              ].map((ws) => (
+                <button
+                  key={ws.tab}
+                  type="button"
+                  disabled={!ws.unlocked}
+                  onClick={() => onOpenCompostStation(ws.tab)}
+                  className={`w-full flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 border text-left text-xs transition-colors ${
+                    ws.unlocked
+                      ? 'bg-slate-900/90 border-slate-800 hover:border-emerald-500/50 text-slate-100 cursor-pointer'
+                      : 'bg-slate-900/40 border-slate-800/60 text-slate-500 cursor-not-allowed'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <div className="font-semibold truncate">{ws.title}</div>
+                    <div className="text-[10px] font-mono text-slate-400">{ws.status}</div>
+                  </div>
+                  {ws.done && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
+                </button>
+              ))}
             </div>
           </div>
         )}

@@ -10,6 +10,13 @@ import {
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 import {
+  DEFAULT_DOOR3_PROGRESS,
+  type CompostContainerType,
+  type Door3ProgressState,
+  type DripBottleType,
+  type MulchMaterialType,
+} from '../workshop/compostData';
+import {
   createEmptyTier,
   type CropId,
   type TierSaveState,
@@ -17,7 +24,7 @@ import {
 } from '../workshop/crops';
 import type { BuildStepId } from '../workshop/steps';
 
-export type ActiveZone = 'kitchen' | 'garden';
+export type ActiveZone = 'kitchen' | 'garden' | 'compost';
 
 export interface FarmerProfile {
   farmerKey: string;
@@ -34,6 +41,7 @@ export interface FarmerProfile {
   weatherMode: WeatherMode;
   litresSaved: number;
   foodServings: number;
+  door3: Door3ProgressState;
 }
 
 export enum OperationType {
@@ -131,6 +139,69 @@ const VALID_KITCHEN_STEPS: Set<BuildStepId> = new Set([
 ]);
 
 const VALID_WEATHER_MODES: Set<WeatherMode> = new Set(['normal', 'elnino_watch', 'heatwave']);
+const VALID_DRIP_BOTTLES: Set<DripBottleType> = new Set([
+  'clear_soda',
+  'green_sparkling',
+  'clear_water',
+]);
+const VALID_COMPOST_CONTAINERS: Set<CompostContainerType> = new Set(['bucket', 'crate', 'pallet']);
+const VALID_MULCH_MATERIALS: Set<MulchMaterialType> = new Set(['cardboard', 'newspaper']);
+
+function clampInt(val: unknown, min: number, max: number, fallback: number): number {
+  if (typeof val !== 'number' || Number.isNaN(val)) return fallback;
+  return Math.max(min, Math.min(max, Math.round(val)));
+}
+
+function sanitizeDoor3(data: Record<string, unknown>): Door3ProgressState {
+  const rawBottle = data.door3DripBottleType;
+  const dripBottleType =
+    typeof rawBottle === 'string' && VALID_DRIP_BOTTLES.has(rawBottle as DripBottleType)
+      ? (rawBottle as DripBottleType)
+      : null;
+
+  const rawContainer = data.door3CompostContainer;
+  const compostContainer =
+    typeof rawContainer === 'string' && VALID_COMPOST_CONTAINERS.has(rawContainer as CompostContainerType)
+      ? (rawContainer as CompostContainerType)
+      : null;
+
+  const rawMulch = data.door3MulchMaterial;
+  const mulchMaterial =
+    typeof rawMulch === 'string' && VALID_MULCH_MATERIALS.has(rawMulch as MulchMaterialType)
+      ? (rawMulch as MulchMaterialType)
+      : null;
+
+  return {
+    dripBottleType,
+    dripStep: clampInt(data.door3DripStep, 0, 4, 0),
+    compostContainer,
+    compostStep: clampInt(data.door3CompostStep, 0, 6, 0),
+    compostRejectTested: clampInt(data.door3CompostRejectTested, 0, 4, 0),
+    mulchMaterial,
+    mulchStep: clampInt(data.door3MulchStep, 0, 4, 0),
+  };
+}
+
+function serializeDoor3(door3: Door3ProgressState) {
+  return {
+    door3DripBottleType:
+      door3.dripBottleType && VALID_DRIP_BOTTLES.has(door3.dripBottleType)
+        ? door3.dripBottleType
+        : null,
+    door3DripStep: clampInt(door3.dripStep, 0, 4, 0),
+    door3CompostContainer:
+      door3.compostContainer && VALID_COMPOST_CONTAINERS.has(door3.compostContainer)
+        ? door3.compostContainer
+        : null,
+    door3CompostStep: clampInt(door3.compostStep, 0, 6, 0),
+    door3CompostRejectTested: clampInt(door3.compostRejectTested, 0, 4, 0),
+    door3MulchMaterial:
+      door3.mulchMaterial && VALID_MULCH_MATERIALS.has(door3.mulchMaterial)
+        ? door3.mulchMaterial
+        : null,
+    door3MulchStep: clampInt(door3.mulchStep, 0, 4, 0),
+  };
+}
 
 function sanitizeTiers(rawTiers: unknown, rackSize: number): TierSaveState[] {
   const clampedSize = Math.max(2, Math.min(6, Math.round(rackSize || 2)));
@@ -173,12 +244,17 @@ export async function loginOrCreateFarmer(
   }
 
   if (snap.exists()) {
-    const data = snap.data();
+    const data = snap.data() as Record<string, unknown>;
     const rackSize =
       typeof data.rackSize === 'number' ? Math.max(2, Math.min(6, Math.round(data.rackSize))) : 2;
     const rawStep = String(data.kitchenStep || 'GET_SAW') as BuildStepId;
     const kitchenStep: BuildStepId = VALID_KITCHEN_STEPS.has(rawStep) ? rawStep : 'GET_SAW';
-    const activeZone: ActiveZone = data.activeZone === 'garden' ? 'garden' : 'kitchen';
+    const activeZone: ActiveZone =
+      data.activeZone === 'garden'
+        ? 'garden'
+        : data.activeZone === 'compost'
+          ? 'compost'
+          : 'kitchen';
     const rawWeather = String(data.weatherMode || 'normal') as WeatherMode;
     const weatherMode: WeatherMode = VALID_WEATHER_MODES.has(rawWeather) ? rawWeather : 'normal';
     const jojoCapacity =
@@ -207,6 +283,7 @@ export async function loginOrCreateFarmer(
       litresSaved: typeof data.litresSaved === 'number' ? Math.max(0, data.litresSaved) : 0,
       foodServings:
         typeof data.foodServings === 'number' ? Math.max(0, Math.round(data.foodServings)) : 0,
+      door3: sanitizeDoor3(data),
     };
     return { profile, isReturning: true };
   }
@@ -227,11 +304,14 @@ export async function loginOrCreateFarmer(
     weatherMode: 'normal',
     litresSaved: 0,
     foodServings: 0,
+    door3: { ...DEFAULT_DOOR3_PROGRESS },
   };
 
   try {
+    const { door3, ...baseFields } = freshProfile;
     await setDoc(ref, {
-      ...freshProfile,
+      ...baseFields,
+      ...serializeDoor3(door3),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
@@ -266,6 +346,7 @@ export async function saveFarmerProgress(profile: FarmerProfile): Promise<void> 
       weatherMode: VALID_WEATHER_MODES.has(profile.weatherMode) ? profile.weatherMode : 'normal',
       litresSaved: Math.max(0, Math.min(1000000, Math.round(profile.litresSaved * 10) / 10)),
       foodServings: Math.max(0, Math.min(1000000, Math.round(profile.foodServings))),
+      ...serializeDoor3(profile.door3),
       updatedAt: serverTimestamp(),
     });
   } catch (err) {

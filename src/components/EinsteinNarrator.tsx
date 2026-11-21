@@ -122,7 +122,7 @@ export const EinsteinNarrator: React.FC<EinsteinNarratorProps> = ({
               type="button"
               onClick={onDismiss}
               aria-label="Dismiss guide"
-              className="absolute top-2 right-2 p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+              className="pointer-events-auto absolute top-2 right-2 p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
             >
               <X className="w-3.5 h-3.5" />
             </button>

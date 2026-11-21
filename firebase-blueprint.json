@@ -21,7 +21,7 @@
         "activeZone": {
           "type": "string",
           "description": "Current area the farmer is standing in.",
-          "enum": ["kitchen", "garden"]
+          "enum": ["kitchen", "garden", "compost"]
         },
         "kitchenStep": {
           "type": "string",
@@ -69,6 +69,34 @@
         "foodServings": {
           "type": "integer",
           "description": "Total fresh household food servings produced from harvested tiers."
+        },
+        "door3DripBottleType": {
+          "type": "string",
+          "description": "Selected 2L bottle variant for Door 3 Workstation 1."
+        },
+        "door3DripStep": {
+          "type": "integer",
+          "description": "Door 3 Workstation 1 step progress (0 to 4)."
+        },
+        "door3CompostContainer": {
+          "type": "string",
+          "description": "Selected composter container (bucket, crate, or pallet) for Door 3 Workstation 2."
+        },
+        "door3CompostStep": {
+          "type": "integer",
+          "description": "Door 3 Workstation 2 layering progress (0 to 6)."
+        },
+        "door3CompostRejectTested": {
+          "type": "integer",
+          "description": "Number of non-compostable avoid items inspected in Workstation 2 (0 to 4)."
+        },
+        "door3MulchMaterial": {
+          "type": "string",
+          "description": "Selected mulch shield material (cardboard or newspaper) for Door 3 Workstation 3."
+        },
+        "door3MulchStep": {
+          "type": "integer",
+          "description": "Door 3 Workstation 3 progress (0 to 4)."
         },
         "createdAt": {
           "type": "string",
