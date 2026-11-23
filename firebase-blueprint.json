@@ -161,8 +161,8 @@
         },
         "role": {
           "type": "string",
-          "description": "Account role identifier.",
-          "enum": ["parent"]
+          "description": "Supporter account role identifier.",
+          "enum": ["parent", "sponsor", "teacher", "family"]
         },
         "pseudonym": {
           "type": "string",
@@ -188,7 +188,11 @@
         },
         "adoptedPets": {
           "type": "array",
-          "description": "Bounded list (max 4) of adopted South African herbivore sanctuary companions with happiness and hunger meters."
+          "description": "Bounded list (max 4) of adopted South African herbivore sanctuary companions with happiness, hunger, water, energy, and play meters."
+        },
+        "walletBalanceZar": {
+          "type": "number",
+          "description": "Parent/sponsor Karri credit wallet balance in ZAR."
         },
         "createdAt": {
           "type": "string",
@@ -211,6 +215,123 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Standardized unified user profile bridging existing farmer/parent profiles, Karri credit wallet balance, and owned indigenous pets.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[a-f0-9]{64}$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "role": { "type": "string", "enum": ["student", "parent", "sponsor", "teacher", "family"] },
+        "schoolId": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "schoolName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "grade": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "grades": { "type": "array" },
+        "walletBalanceZar": { "type": "number" },
+        "ownedPetIds": { "type": "array" },
+        "adoptedPets": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "name", "role", "schoolId", "schoolName", "grade", "walletBalanceZar", "createdAt", "updatedAt"]
+    },
+    "StoreListing": {
+      "title": "StoreListing",
+      "description": "Real-time storefront listing fed by student crop harvests, Door 3 mulch/compost batches, and pet care supply bundles.",
+      "type": "object",
+      "properties": {
+        "listingId": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "title": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "category": { "type": "string", "enum": ["harvest_produce", "mulch_compost", "pet_care"] },
+        "sourceType": { "type": "string", "enum": ["student_harvest", "care_bundle"] },
+        "quantityAvailable": { "type": "integer" },
+        "priceZar": { "type": "number" },
+        "schoolId": { "type": "string", "maxLength": 100 },
+        "schoolName": { "type": "string", "maxLength": 100 },
+        "grade": { "type": "string", "maxLength": 40 },
+        "studentUid": { "type": "string", "maxLength": 64 },
+        "studentName": { "type": "string", "maxLength": 40 },
+        "petCareEffect": { "type": "object" },
+        "lastHarvestedAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["active", "sold_out"] }
+      },
+      "required": ["listingId", "title", "category", "sourceType", "quantityAvailable", "priceZar", "schoolId", "schoolName", "grade", "petCareEffect", "updatedAt", "status"]
+    },
+    "StudentGrow": {
+      "title": "StudentGrow",
+      "description": "Active student garden crop or Door 3 compost/mulch cycle currently growing toward harvest (On Its Way visibility).",
+      "type": "object",
+      "properties": {
+        "growId": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "studentUid": { "type": "string", "minLength": 64, "maxLength": 64 },
+        "studentName": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "schoolId": { "type": "string", "maxLength": 100 },
+        "schoolName": { "type": "string", "maxLength": 100 },
+        "grade": { "type": "string", "maxLength": 40 },
+        "cropId": { "type": "string", "maxLength": 40 },
+        "itemTitle": { "type": "string", "maxLength": 100 },
+        "category": { "type": "string", "enum": ["harvest_produce", "mulch_compost"] },
+        "plantedAtMs": { "type": "integer" },
+        "harvestReadyAtMs": { "type": "integer" },
+        "harvested": { "type": "boolean" },
+        "expectedYieldQty": { "type": "integer" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["growId", "studentUid", "studentName", "schoolId", "schoolName", "grade", "cropId", "itemTitle", "category", "plantedAtMs", "harvestReadyAtMs", "harvested", "expectedYieldQty", "updatedAt"]
+    },
+    "HarvestBatch": {
+      "title": "HarvestBatch",
+      "description": "Immutable student harvest event used for live store stock replenishment and rolling 14-day student harvest scores.",
+      "type": "object",
+      "properties": {
+        "batchId": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "studentUid": { "type": "string", "minLength": 64, "maxLength": 64 },
+        "studentName": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "schoolId": { "type": "string", "maxLength": 100 },
+        "schoolName": { "type": "string", "maxLength": 100 },
+        "grade": { "type": "string", "maxLength": 40 },
+        "itemTitle": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "category": { "type": "string", "enum": ["harvest_produce", "mulch_compost"] },
+        "quantity": { "type": "integer" },
+        "harvestedAt": { "type": "string", "format": "date-time" },
+        "harvestedAtMs": { "type": "integer" }
+      },
+      "required": ["batchId", "studentUid", "studentName", "schoolId", "schoolName", "grade", "itemTitle", "category", "quantity", "harvestedAt", "harvestedAtMs"]
+    },
+    "StoreOrder": {
+      "title": "StoreOrder",
+      "description": "Completed atomic checkout order paid via Karri Credit Wallet delivering care/supply boosts to a sanctuary pet.",
+      "type": "object",
+      "properties": {
+        "orderId": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "buyerUid": { "type": "string", "minLength": 64, "maxLength": 64 },
+        "buyerName": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "items": { "type": "array" },
+        "totalPaidZar": { "type": "number" },
+        "walletBeforeZar": { "type": "number" },
+        "walletAfterZar": { "type": "number" },
+        "targetPetId": { "type": "string", "maxLength": 40 },
+        "targetPetName": { "type": "string", "maxLength": 40 },
+        "paymentChannel": { "type": "string", "enum": ["Karri Credit Wallet"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orderId", "buyerUid", "buyerName", "items", "totalPaidZar", "walletBeforeZar", "walletAfterZar", "targetPetId", "targetPetName", "paymentChannel", "createdAt"]
+    },
+    "WalletTopup": {
+      "title": "WalletTopup",
+      "description": "Karri minimum R250 wallet credit top-up transaction.",
+      "type": "object",
+      "properties": {
+        "topupId": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "userId": { "type": "string", "minLength": 64, "maxLength": 64 },
+        "amountZar": { "type": "number" },
+        "provider": { "type": "string", "enum": ["Karri"] },
+        "status": { "type": "string", "enum": ["completed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["topupId", "userId", "amountZar", "provider", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -224,7 +345,43 @@
       "schema": {
         "$ref": "#/entities/ParentProfile"
       },
-      "description": "Stores each parent or sponsor pseudonym, normalized schoolKey, and selected grade list."
+      "description": "Stores each parent or sponsor pseudonym, normalized schoolKey, selected grade list, wallet balance, and adopted sanctuary pets."
+    },
+    "/users/{uid}": {
+      "schema": {
+        "$ref": "#/entities/UserAccount"
+      },
+      "description": "Standardized unified user profile bridging farmer/parent records, Karri walletBalanceZar, and owned sanctuary pets."
+    },
+    "/store_listings/{listingId}": {
+      "schema": {
+        "$ref": "#/entities/StoreListing"
+      },
+      "description": "Live store shelf inventory fed by student harvests and pet care supply bundles."
+    },
+    "/student_grows/{growId}": {
+      "schema": {
+        "$ref": "#/entities/StudentGrow"
+      },
+      "description": "Active student crops and Door 3 compost/mulch batches growing toward harvest for On Its Way visibility."
+    },
+    "/harvest_batches/{batchId}": {
+      "schema": {
+        "$ref": "#/entities/HarvestBatch"
+      },
+      "description": "Student harvest log for stock attribution and 14-day rolling harvest scorecards."
+    },
+    "/store_orders/{orderId}": {
+      "schema": {
+        "$ref": "#/entities/StoreOrder"
+      },
+      "description": "Atomic store orders paid from Karri Credit Wallet."
+    },
+    "/wallet_topups/{topupId}": {
+      "schema": {
+        "$ref": "#/entities/WalletTopup"
+      },
+      "description": "Minimum R250 Karri wallet credit top-up logs."
     }
   }
 }

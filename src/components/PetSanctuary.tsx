@@ -1,12 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  AlertTriangle,
   ArrowRight,
+  BatteryCharging,
   CheckCircle2,
+  Droplets,
+  Gamepad2,
   Heart,
   Info,
   Leaf,
   MapPin,
   ShieldCheck,
+  ShoppingBasket,
   Sparkles,
   Sprout,
   Utensils,
@@ -15,6 +20,8 @@ import {
 import type { ParentProfile } from '../firebase/firebaseClient';
 import { PetIllustration, VeldHabitatBackdrop } from './PetArtwork';
 import {
+  computeEffectivePetStats,
+  computePetAlerts,
   createAdoptedPetRecord,
   getCatalogPetById,
   PET_ADOPTION_PRICE_ZAR,
@@ -39,6 +46,7 @@ interface PetSanctuaryProps {
   adoptedPets: AdoptedPet[];
   loadingPets: boolean;
   onPetsUpdated: (nextPets: AdoptedPet[]) => void;
+  onOpenProduceStore?: () => void;
 }
 
 export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
@@ -46,6 +54,7 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
   adoptedPets,
   loadingPets,
   onPetsUpdated,
+  onOpenProduceStore,
 }) => {
   const [activeTab, setActiveTab] = useState<SanctuaryTab>(
     adoptedPets.length > 0 ? 'habitat' : 'adopt'
@@ -185,9 +194,11 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
     triggerMotion('hop', 820);
     setSpeechBubble({ text: msg });
 
+    const now = Date.now();
     await persistPetCare(activeAdoptedPet.id, (pet) => ({
       ...pet,
       happiness: Math.min(100, pet.happiness + 2),
+      lastCareAtMs: now,
     }));
   };
 
@@ -202,9 +213,12 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
     triggerMotion('hop', 820);
     setSpeechBubble({ text: msg });
 
+    const now = Date.now();
     await persistPetCare(activeAdoptedPet.id, (pet) => ({
       ...pet,
       happiness: Math.min(100, pet.happiness + 8),
+      energy: Math.min(100, pet.energy + 4),
+      lastCareAtMs: now,
     }));
   };
 
@@ -218,10 +232,14 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
     triggerMotion('play', 920);
     setSpeechBubble({ title: 'Nature Discovery', text: msg });
 
+    const now = Date.now();
     await persistPetCare(activeAdoptedPet.id, (pet) => ({
       ...pet,
       happiness: Math.min(100, pet.happiness + 5),
-      hunger: Math.max(45, pet.hunger - 3),
+      play: Math.min(100, pet.play + 10),
+      hunger: Math.max(35, pet.hunger - 3),
+      energy: Math.max(35, pet.energy - 3),
+      lastCareAtMs: now,
     }));
   };
 
@@ -239,9 +257,11 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
       text: found.fact,
     });
 
+    const now = Date.now();
     await persistPetCare(activeAdoptedPet.id, (pet) => ({
       ...pet,
       happiness: Math.min(100, pet.happiness + 2),
+      lastCareAtMs: now,
     }));
   };
 
@@ -619,85 +639,187 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
                   </div>
                 </div>
 
-                {/* RIGHT ZONE: Companion Wellbeing + Interactive Anatomy Explorer */}
+                {/* RIGHT ZONE: Companion Wellbeing + Live Alerts + Interactive Anatomy Explorer */}
                 <div className="lg:col-span-4 flex flex-col justify-between gap-4 rounded-2xl border border-slate-200 bg-[#FBF8F1] p-4 sm:p-5">
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-[#1E293B]">
-                        Companion Wellbeing
-                      </h3>
-                      {savingCare && (
-                        <span className="text-xs font-medium text-[#007749]">Saving...</span>
-                      )}
-                    </div>
+                  {(() => {
+                    const effectivePet = computeEffectivePetStats(activeAdoptedPet);
+                    const petAlerts = computePetAlerts([activeAdoptedPet]);
+                    return (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <h3 className="text-xs font-bold uppercase tracking-wider text-[#1E293B]">
+                            Companion Wellbeing
+                          </h3>
+                          {savingCare ? (
+                            <span className="text-xs font-medium text-[#007749]">Saving...</span>
+                          ) : (effectivePet.supplyDaysRemaining ?? 0) > 0 ? (
+                            <span className="rounded-md bg-[#007749]/15 px-2 py-0.5 text-[11px] font-bold text-[#007749]">
+                              {effectivePet.supplyDaysRemaining}-Day Supply Active
+                            </span>
+                          ) : null}
+                        </div>
 
-                    {/* Happiness Meter */}
-                    <div>
-                      <div className="flex items-center justify-between text-sm font-semibold text-[#1E293B]">
-                        <span className="inline-flex items-center gap-1.5">
-                          <Heart className="h-4 w-4 text-[#E03C31]" />
-                          Happiness
-                        </span>
-                        <span className="tabular-nums text-[#007749]">
-                          {activeAdoptedPet.happiness}%
-                        </span>
-                      </div>
-                      <div className="mt-1.5 h-2.5 w-full overflow-hidden rounded-full bg-slate-200">
-                        <div
-                          className="h-full rounded-full bg-[#007749] transition-all duration-300"
-                          style={{ width: `${activeAdoptedPet.happiness}%` }}
-                        />
-                      </div>
-                    </div>
+                        {/* Live Care Alerts */}
+                        {petAlerts.length > 0 && (
+                          <div className="rounded-xl border border-[#FFB81C]/60 bg-[#FFB81C]/15 p-2.5 space-y-2">
+                            <div className="flex items-center gap-1.5 text-xs font-bold text-[#92400E]">
+                              <AlertTriangle className="h-3.5 w-3.5 text-[#D97706] shrink-0" />
+                              <span>
+                                {activeAdoptedPet.name} needs:{' '}
+                                {petAlerts.map((a) => a.label).join(' · ')}
+                              </span>
+                            </div>
+                            {onOpenProduceStore && (
+                              <button
+                                type="button"
+                                onClick={onOpenProduceStore}
+                                className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#007749] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#065F46] cursor-pointer transition-colors"
+                              >
+                                <ShoppingBasket className="h-3.5 w-3.5" />
+                                <span>Visit School Store to Care</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
 
-                    {/* Tummy / Energy Meter */}
-                    <div>
-                      <div className="flex items-center justify-between text-sm font-semibold text-[#1E293B]">
-                        <span className="inline-flex items-center gap-1.5">
-                          <Utensils className="h-4 w-4 text-[#007749]" />
-                          Tummy / Energy
-                        </span>
-                        <span className="tabular-nums text-[#B45309]">
-                          {activeAdoptedPet.hunger}%
-                        </span>
+                        {/* Happiness */}
+                        <div>
+                          <div className="flex items-center justify-between text-xs font-semibold text-[#1E293B]">
+                            <span className="inline-flex items-center gap-1.5">
+                              <Heart className="h-3.5 w-3.5 text-[#E03C31]" />
+                              Happiness
+                            </span>
+                            <span className="tabular-nums text-[#007749]">
+                              {effectivePet.happiness}%
+                            </span>
+                          </div>
+                          <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                            <div
+                              className="h-full rounded-full bg-[#007749] transition-all duration-300"
+                              style={{ width: `${effectivePet.happiness}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Hunger / Food */}
+                        <div>
+                          <div className="flex items-center justify-between text-xs font-semibold text-[#1E293B]">
+                            <span className="inline-flex items-center gap-1.5">
+                              <Utensils className="h-3.5 w-3.5 text-[#007749]" />
+                              Tummy (Food)
+                            </span>
+                            <span className="tabular-nums text-[#B45309]">
+                              {effectivePet.hunger}%
+                            </span>
+                          </div>
+                          <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                            <div
+                              className="h-full rounded-full bg-[#FFB81C] transition-all duration-300"
+                              style={{ width: `${effectivePet.hunger}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Water / Hydration */}
+                        <div>
+                          <div className="flex items-center justify-between text-xs font-semibold text-[#1E293B]">
+                            <span className="inline-flex items-center gap-1.5">
+                              <Droplets className="h-3.5 w-3.5 text-[#0284C7]" />
+                              Hydration (Water)
+                            </span>
+                            <span className="tabular-nums text-[#0369A1]">
+                              {effectivePet.water}%
+                            </span>
+                          </div>
+                          <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                            <div
+                              className="h-full rounded-full bg-[#0284C7] transition-all duration-300"
+                              style={{ width: `${effectivePet.water}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Energy & Play side-by-side */}
+                        <div className="grid grid-cols-2 gap-2.5 pt-0.5">
+                          <div>
+                            <div className="flex items-center justify-between text-[11px] font-semibold text-[#1E293B]">
+                              <span className="inline-flex items-center gap-1">
+                                <BatteryCharging className="h-3 w-3 text-[#007749]" />
+                                Energy
+                              </span>
+                              <span className="tabular-nums">{effectivePet.energy}%</span>
+                            </div>
+                            <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                              <div
+                                className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+                                style={{ width: `${effectivePet.energy}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="flex items-center justify-between text-[11px] font-semibold text-[#1E293B]">
+                              <span className="inline-flex items-center gap-1">
+                                <Gamepad2 className="h-3 w-3 text-[#001489]" />
+                                Play
+                              </span>
+                              <span className="tabular-nums">{effectivePet.play}%</span>
+                            </div>
+                            <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                              <div
+                                className="h-full rounded-full bg-[#001489] transition-all duration-300"
+                                style={{ width: `${effectivePet.play}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        <p className="text-[11px] text-slate-600">
+                          Favorite: {activeCatalog.favoriteCrops}
+                        </p>
                       </div>
-                      <div className="mt-1.5 h-2.5 w-full overflow-hidden rounded-full bg-slate-200">
-                        <div
-                          className="h-full rounded-full bg-[#FFB81C] transition-all duration-300"
-                          style={{ width: `${activeAdoptedPet.hunger}%` }}
-                        />
-                      </div>
-                      <p className="mt-1.5 text-xs text-slate-600">
-                        Favorite: {activeCatalog.favoriteCrops}
-                      </p>
-                    </div>
-                  </div>
+                    );
+                  })()}
 
                   {/* Interactive Touch-to-Learn Body Parts */}
-                  <div className="border-t border-slate-200 pt-3.5">
-                    <p className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#001489]">
-                      <Info className="h-3.5 w-3.5" />
-                      <span>Tap {activeAdoptedPet.name} to Learn</span>
-                    </p>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {activeCatalog.bodyPartFacts.map((part) => {
-                        const isSelected = inspectedPartId === part.partId;
-                        return (
-                          <button
-                            key={part.partId}
-                            type="button"
-                            onClick={() => handleInspectBodyPart(part.partId)}
-                            className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
-                              isSelected
-                                ? 'bg-[#FFB81C] text-[#1E293B] shadow-sm'
-                                : 'bg-white border border-slate-200 text-[#1E293B] hover:border-[#007749]/50 hover:bg-[#007749]/5'
-                            }`}
-                          >
-                            {part.label}
-                          </button>
-                        );
-                      })}
+                  <div className="border-t border-slate-200 pt-3.5 space-y-3">
+                    <div>
+                      <p className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#001489]">
+                        <Info className="h-3.5 w-3.5" />
+                        <span>Tap {activeAdoptedPet.name} to Learn</span>
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {activeCatalog.bodyPartFacts.map((part) => {
+                          const isSelected = inspectedPartId === part.partId;
+                          return (
+                            <button
+                              key={part.partId}
+                              type="button"
+                              onClick={() => handleInspectBodyPart(part.partId)}
+                              className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+                                isSelected
+                                  ? 'bg-[#FFB81C] text-[#1E293B] shadow-sm'
+                                  : 'bg-white border border-slate-200 text-[#1E293B] hover:border-[#007749]/50 hover:bg-[#007749]/5'
+                              }`}
+                            >
+                              {part.label}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
+
+                    {onOpenProduceStore && (
+                      <button
+                        type="button"
+                        onClick={onOpenProduceStore}
+                        className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#001489] px-3.5 py-2.5 text-xs font-bold text-white hover:bg-[#001489]/90 cursor-pointer transition-colors shadow-sm"
+                      >
+                        <ShoppingBasket className="h-4 w-4 text-[#FFB81C]" />
+                        <span>Shop Student Harvests for {activeAdoptedPet.name}</span>
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

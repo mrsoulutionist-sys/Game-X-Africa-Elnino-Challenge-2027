@@ -19,6 +19,10 @@ service cloud.firestore {
       return key is string && key.size() == 64 && key.matches('^[a-f0-9]{64}$');
     }
 
+    function isValidDocId(id) {
+      return id is string && id.size() >= 2 && id.size() <= 120 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
     function isValidTierList(tiers) {
       return tiers is list
         && tiers.size() <= 6
@@ -163,7 +167,21 @@ service cloud.firestore {
     function isValidAdoptedPet(pet) {
       return pet is map
         && pet.keys().hasAll(['id', 'species', 'name', 'age', 'adoptedAt', 'happiness', 'hunger'])
-        && pet.keys().hasOnly(['id', 'species', 'name', 'age', 'adoptedAt', 'happiness', 'hunger'])
+        && pet.keys().hasOnly([
+          'id',
+          'species',
+          'name',
+          'age',
+          'adoptedAt',
+          'happiness',
+          'hunger',
+          'water',
+          'energy',
+          'play',
+          'supplyDaysRemaining',
+          'supplyUntilMs',
+          'lastCareAtMs'
+        ])
         && pet.id in ['thabo-tortoise', 'zuri-rabbit', 'kudu-grysbok', 'biko-dassie']
         && pet.species is string
         && pet.species.size() >= 2
@@ -182,7 +200,13 @@ service cloud.firestore {
         && pet.happiness <= 100
         && pet.hunger is int
         && pet.hunger >= 0
-        && pet.hunger <= 100;
+        && pet.hunger <= 100
+        && (!('water' in pet) || (pet.water is int && pet.water >= 0 && pet.water <= 100))
+        && (!('energy' in pet) || (pet.energy is int && pet.energy >= 0 && pet.energy <= 100))
+        && (!('play' in pet) || (pet.play is int && pet.play >= 0 && pet.play <= 100))
+        && (!('supplyDaysRemaining' in pet) || (pet.supplyDaysRemaining is int && pet.supplyDaysRemaining >= 0 && pet.supplyDaysRemaining <= 30))
+        && (!('supplyUntilMs' in pet) || (pet.supplyUntilMs is int && pet.supplyUntilMs >= 0))
+        && (!('lastCareAtMs' in pet) || (pet.lastCareAtMs is int && pet.lastCareAtMs >= 0));
     }
 
     function isValidAdoptedPetsList(pets) {
@@ -210,12 +234,13 @@ service cloud.firestore {
           'schoolKey',
           'grades',
           'adoptedPets',
+          'walletBalanceZar',
           'createdAt',
           'updatedAt'
         ])
         && data.parentKey is string
         && data.parentKey == pathKey
-        && data.role == 'parent'
+        && data.role in ['parent', 'sponsor', 'teacher', 'family']
         && data.pseudonym is string
         && data.pseudonym.size() >= 1
         && data.pseudonym.size() <= 40
@@ -227,8 +252,349 @@ service cloud.firestore {
         && data.schoolKey.size() <= 100
         && isValidParentGrades(data.grades)
         && (!('adoptedPets' in data) || isValidAdoptedPetsList(data.adoptedPets))
+        && (!('walletBalanceZar' in data) || (data.walletBalanceZar is number && data.walletBalanceZar >= 0 && data.walletBalanceZar <= 1000000))
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
+    }
+
+    function isValidOwnedPetIdList(ids) {
+      return ids is list
+        && ids.size() <= 4
+        && (
+          ids.size() == 0
+          || (
+            ids[0] is string
+            && ids.hasOnly(['thabo-tortoise', 'zuri-rabbit', 'kudu-grysbok', 'biko-dassie'])
+          )
+        );
+    }
+
+    function isValidUserDoc(data, pathUid) {
+      return data.keys().hasAll([
+          'uid',
+          'name',
+          'role',
+          'schoolId',
+          'schoolName',
+          'grade',
+          'walletBalanceZar',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid',
+          'name',
+          'role',
+          'schoolId',
+          'schoolName',
+          'grade',
+          'grades',
+          'walletBalanceZar',
+          'ownedPetIds',
+          'adoptedPets',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.uid is string
+        && data.uid == pathUid
+        && data.name is string
+        && data.name.size() >= 1
+        && data.name.size() <= 40
+        && data.role in ['student', 'parent', 'sponsor', 'teacher', 'family']
+        && data.schoolId is string
+        && data.schoolId.size() <= 100
+        && data.schoolName is string
+        && data.schoolName.size() <= 100
+        && data.grade is string
+        && data.grade.size() >= 1
+        && data.grade.size() <= 120
+        && (!('grades' in data) || isValidParentGrades(data.grades))
+        && data.walletBalanceZar is number
+        && data.walletBalanceZar >= 0
+        && data.walletBalanceZar <= 1000000
+        && (!('ownedPetIds' in data) || isValidOwnedPetIdList(data.ownedPetIds))
+        && (!('adoptedPets' in data) || isValidAdoptedPetsList(data.adoptedPets))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPetCareEffect(effect) {
+      return effect is map
+        && effect.keys().hasAll(['stat', 'boostAmount'])
+        && effect.keys().hasOnly(['stat', 'boostAmount', 'supplyDays'])
+        && effect.stat in ['hunger', 'water', 'energy', 'play']
+        && effect.boostAmount is int
+        && effect.boostAmount >= 1
+        && effect.boostAmount <= 100
+        && (!('supplyDays' in effect) || (effect.supplyDays is int && effect.supplyDays >= 1 && effect.supplyDays <= 30));
+    }
+
+    function isValidStoreListingDoc(data, pathId) {
+      return data.keys().hasAll([
+          'listingId',
+          'title',
+          'category',
+          'sourceType',
+          'quantityAvailable',
+          'priceZar',
+          'schoolId',
+          'schoolName',
+          'grade',
+          'petCareEffect',
+          'updatedAt',
+          'status'
+        ])
+        && data.keys().hasOnly([
+          'listingId',
+          'title',
+          'category',
+          'sourceType',
+          'quantityAvailable',
+          'priceZar',
+          'schoolId',
+          'schoolName',
+          'grade',
+          'studentUid',
+          'studentName',
+          'petCareEffect',
+          'lastHarvestedAt',
+          'updatedAt',
+          'status'
+        ])
+        && data.listingId is string
+        && data.listingId == pathId
+        && data.title is string
+        && data.title.size() >= 2
+        && data.title.size() <= 100
+        && data.category in ['harvest_produce', 'mulch_compost', 'pet_care']
+        && data.sourceType in ['student_harvest', 'care_bundle']
+        && data.quantityAvailable is int
+        && data.quantityAvailable >= 0
+        && data.quantityAvailable <= 10000
+        && data.priceZar is number
+        && data.priceZar >= 1
+        && data.priceZar <= 5000
+        && data.schoolId is string
+        && data.schoolId.size() <= 100
+        && data.schoolName is string
+        && data.schoolName.size() <= 100
+        && data.grade is string
+        && data.grade.size() <= 40
+        && (!('studentUid' in data) || (data.studentUid is string && data.studentUid.size() <= 64))
+        && (!('studentName' in data) || (data.studentName is string && data.studentName.size() <= 40))
+        && isValidPetCareEffect(data.petCareEffect)
+        && (!('lastHarvestedAt' in data) || data.lastHarvestedAt == null || data.lastHarvestedAt is timestamp)
+        && data.updatedAt is timestamp
+        && data.status in ['active', 'sold_out'];
+    }
+
+    function isValidStudentGrowDoc(data, pathId) {
+      return data.keys().hasAll([
+          'growId',
+          'studentUid',
+          'studentName',
+          'schoolId',
+          'schoolName',
+          'grade',
+          'cropId',
+          'itemTitle',
+          'category',
+          'plantedAtMs',
+          'harvestReadyAtMs',
+          'harvested',
+          'expectedYieldQty',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'growId',
+          'studentUid',
+          'studentName',
+          'schoolId',
+          'schoolName',
+          'grade',
+          'cropId',
+          'itemTitle',
+          'category',
+          'plantedAtMs',
+          'harvestReadyAtMs',
+          'harvested',
+          'expectedYieldQty',
+          'updatedAt'
+        ])
+        && data.growId is string
+        && data.growId == pathId
+        && isValidFarmerKey(data.studentUid)
+        && data.studentName is string
+        && data.studentName.size() >= 1
+        && data.studentName.size() <= 40
+        && data.schoolId is string
+        && data.schoolId.size() <= 100
+        && data.schoolName is string
+        && data.schoolName.size() <= 100
+        && data.grade is string
+        && data.grade.size() <= 40
+        && data.cropId is string
+        && data.cropId.size() >= 1
+        && data.cropId.size() <= 40
+        && data.itemTitle is string
+        && data.itemTitle.size() >= 2
+        && data.itemTitle.size() <= 100
+        && data.category in ['harvest_produce', 'mulch_compost']
+        && data.plantedAtMs is int
+        && data.plantedAtMs >= 0
+        && data.harvestReadyAtMs is int
+        && data.harvestReadyAtMs >= 0
+        && data.harvested is bool
+        && data.expectedYieldQty is int
+        && data.expectedYieldQty >= 1
+        && data.expectedYieldQty <= 50
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidHarvestBatchDoc(data, pathId) {
+      return data.keys().hasAll([
+          'batchId',
+          'studentUid',
+          'studentName',
+          'schoolId',
+          'schoolName',
+          'grade',
+          'itemTitle',
+          'category',
+          'quantity',
+          'harvestedAt',
+          'harvestedAtMs'
+        ])
+        && data.keys().hasOnly([
+          'batchId',
+          'studentUid',
+          'studentName',
+          'schoolId',
+          'schoolName',
+          'grade',
+          'itemTitle',
+          'category',
+          'quantity',
+          'harvestedAt',
+          'harvestedAtMs'
+        ])
+        && data.batchId is string
+        && data.batchId == pathId
+        && isValidFarmerKey(data.studentUid)
+        && data.studentName is string
+        && data.studentName.size() >= 1
+        && data.studentName.size() <= 40
+        && data.schoolId is string
+        && data.schoolId.size() <= 100
+        && data.schoolName is string
+        && data.schoolName.size() <= 100
+        && data.grade is string
+        && data.grade.size() <= 40
+        && data.itemTitle is string
+        && data.itemTitle.size() >= 2
+        && data.itemTitle.size() <= 100
+        && data.category in ['harvest_produce', 'mulch_compost']
+        && data.quantity is int
+        && data.quantity >= 1
+        && data.quantity <= 100
+        && data.harvestedAt is timestamp
+        && data.harvestedAtMs is int
+        && data.harvestedAtMs >= 0;
+    }
+
+    function isValidOrderItemsList(items) {
+      return items is list
+        && items.size() >= 1
+        && items.size() <= 20
+        && items[0] is map
+        && items[0].keys().hasAll(['listingId', 'title', 'quantity', 'priceZar', 'petCareEffect'])
+        && items[0].keys().hasOnly([
+          'listingId',
+          'title',
+          'quantity',
+          'priceZar',
+          'sourceSchoolId',
+          'sourceGrade',
+          'studentName',
+          'petCareEffect'
+        ]);
+    }
+
+    function isValidStoreOrderDoc(data, pathId) {
+      return data.keys().hasAll([
+          'orderId',
+          'buyerUid',
+          'buyerName',
+          'items',
+          'totalPaidZar',
+          'walletBeforeZar',
+          'walletAfterZar',
+          'targetPetId',
+          'targetPetName',
+          'paymentChannel',
+          'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'orderId',
+          'buyerUid',
+          'buyerName',
+          'items',
+          'totalPaidZar',
+          'walletBeforeZar',
+          'walletAfterZar',
+          'targetPetId',
+          'targetPetName',
+          'paymentChannel',
+          'createdAt'
+        ])
+        && data.orderId is string
+        && data.orderId == pathId
+        && isValidFarmerKey(data.buyerUid)
+        && data.buyerName is string
+        && data.buyerName.size() >= 1
+        && data.buyerName.size() <= 40
+        && isValidOrderItemsList(data.items)
+        && data.totalPaidZar is number
+        && data.totalPaidZar > 0
+        && data.totalPaidZar <= 100000
+        && data.walletBeforeZar is number
+        && data.walletBeforeZar >= data.totalPaidZar
+        && data.walletAfterZar is number
+        && data.walletAfterZar >= 0
+        && data.targetPetId is string
+        && data.targetPetId.size() <= 40
+        && data.targetPetName is string
+        && data.targetPetName.size() <= 40
+        && data.paymentChannel == 'Karri Credit Wallet'
+        && data.createdAt is timestamp;
+    }
+
+    function isValidWalletTopupDoc(data, pathId) {
+      return data.keys().hasAll([
+          'topupId',
+          'userId',
+          'amountZar',
+          'provider',
+          'status',
+          'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'topupId',
+          'userId',
+          'amountZar',
+          'provider',
+          'status',
+          'createdAt'
+        ])
+        && data.topupId is string
+        && data.topupId == pathId
+        && isValidFarmerKey(data.userId)
+        && data.amountZar is number
+        && data.amountZar >= 250
+        && data.amountZar <= 100000
+        && data.provider == 'Karri'
+        && data.status == 'completed'
+        && data.createdAt is timestamp;
     }
 
     // Connection probe document (single get only, no list or writes)
@@ -281,7 +647,7 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Parent / Sponsor profiles keyed by SHA-256(pseudonym + passcode)
+    // Parent / Sponsor / Teacher / Family profiles keyed by SHA-256(pseudonym + passcode)
     match /parents/{parentKey} {
       allow get: if isValidFarmerKey(parentKey);
       allow list: if false;
@@ -301,9 +667,123 @@ service cloud.firestore {
           'schoolKey',
           'grades',
           'adoptedPets',
+          'walletBalanceZar',
           'updatedAt'
         ]);
       allow delete: if false;
+    }
+
+    // Standardized unified users/{uid} collection
+    match /users/{uid} {
+      allow get: if isValidFarmerKey(uid);
+      allow list: if false;
+      allow create: if isValidFarmerKey(uid)
+        && isValidUserDoc(incoming(), uid)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidFarmerKey(uid)
+        && isValidUserDoc(incoming(), uid)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'name',
+          'role',
+          'schoolId',
+          'schoolName',
+          'grade',
+          'grades',
+          'walletBalanceZar',
+          'ownedPetIds',
+          'adoptedPets',
+          'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
+    // Storefront inventory listings (public/school shelf read, validated writes)
+    match /store_listings/{listingId} {
+      allow get, list: if request.time != null;
+      allow create: if isValidDocId(listingId)
+        && isValidStoreListingDoc(incoming(), listingId)
+        && incoming().updatedAt == request.time;
+      allow update: if isValidDocId(listingId)
+        && isValidStoreListingDoc(incoming(), listingId)
+        && incoming().listingId == existing().listingId
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'title',
+          'category',
+          'sourceType',
+          'quantityAvailable',
+          'priceZar',
+          'schoolId',
+          'schoolName',
+          'grade',
+          'studentUid',
+          'studentName',
+          'petCareEffect',
+          'lastHarvestedAt',
+          'updatedAt',
+          'status'
+        ]);
+      allow delete: if false;
+    }
+
+    // Active growing student crops & Door 3 cycles ("On Its Way" visibility)
+    match /student_grows/{growId} {
+      allow get, list: if request.time != null;
+      allow create: if isValidDocId(growId)
+        && isValidStudentGrowDoc(incoming(), growId)
+        && incoming().updatedAt == request.time;
+      allow update: if isValidDocId(growId)
+        && isValidStudentGrowDoc(incoming(), growId)
+        && incoming().growId == existing().growId
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'studentName',
+          'schoolId',
+          'schoolName',
+          'grade',
+          'cropId',
+          'itemTitle',
+          'category',
+          'plantedAtMs',
+          'harvestReadyAtMs',
+          'harvested',
+          'expectedYieldQty',
+          'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
+    // Student harvest batches (append-only for 14-day score & shelf freshness)
+    match /harvest_batches/{batchId} {
+      allow get, list: if request.time != null;
+      allow create: if isValidDocId(batchId)
+        && isValidHarvestBatchDoc(incoming(), batchId)
+        && incoming().harvestedAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // Completed Karri Credit Wallet store orders (scoped by buyerUid on list)
+    match /store_orders/{orderId} {
+      allow get: if isValidDocId(orderId);
+      allow list: if resource.data.buyerUid is string && resource.data.buyerUid.size() == 64;
+      allow create: if isValidDocId(orderId)
+        && isValidStoreOrderDoc(incoming(), orderId)
+        && incoming().createdAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // Minimum R250 Karri wallet top-up records (scoped by userId on list)
+    match /wallet_topups/{topupId} {
+      allow get: if isValidDocId(topupId);
+      allow list: if resource.data.userId is string && resource.data.userId.size() == 64;
+      allow create: if isValidDocId(topupId)
+        && isValidWalletTopupDoc(incoming(), topupId)
+        && incoming().createdAt == request.time;
+      allow update, delete: if false;
     }
   }
 }

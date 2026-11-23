@@ -17,6 +17,248 @@ export interface AdoptedPet {
   adoptedAt: string;
   happiness: number;
   hunger: number;
+  water: number;
+  energy: number;
+  play: number;
+  supplyDaysRemaining?: number;
+  supplyUntilMs?: number;
+  lastCareAtMs?: number;
+}
+
+export type PetAlertType = 'hunger' | 'water' | 'energy' | 'play';
+
+export interface PetAlert {
+  petId: PetId;
+  petName: string;
+  type: PetAlertType;
+  label: string;
+  currentValue: number;
+  urgent: boolean;
+}
+
+export const VALID_PET_IDS: Set<PetId> = new Set([
+  'thabo-tortoise',
+  'zuri-rabbit',
+  'kudu-grysbok',
+  'biko-dassie',
+]);
+
+export function getCatalogPetById(id: PetId): PetCatalogItem {
+  return SA_HERBIVORE_CATALOG.find((item) => item.id === id) ?? SA_HERBIVORE_CATALOG[0];
+}
+
+export function createAdoptedPetRecord(item: PetCatalogItem): AdoptedPet {
+  const now = Date.now();
+  return {
+    id: item.id,
+    species: item.species,
+    name: item.name,
+    age: item.age,
+    adoptedAt: new Date(now).toISOString(),
+    happiness: 100,
+    hunger: 65,
+    water: 68,
+    energy: 78,
+    play: 70,
+    supplyDaysRemaining: 0,
+    supplyUntilMs: 0,
+    lastCareAtMs: now,
+  };
+}
+
+export function computeEffectivePetStats(pet: AdoptedPet, nowMs = Date.now()): AdoptedPet {
+  const lastMs = pet.lastCareAtMs && pet.lastCareAtMs > 0 ? pet.lastCareAtMs : nowMs;
+  const elapsedHours = Math.max(0, (nowMs - lastMs) / 3600000);
+  const decay = Math.min(28, Math.floor(elapsedHours * 1.5));
+
+  const hasActiveSupply = Boolean(pet.supplyUntilMs && pet.supplyUntilMs > nowMs);
+  const computedSupplyDays = hasActiveSupply
+    ? Math.max(1, Math.ceil((pet.supplyUntilMs! - nowMs) / 86400000))
+    : 0;
+
+  return {
+    ...pet,
+    hunger: hasActiveSupply ? Math.max(75, pet.hunger) : Math.max(20, pet.hunger - decay),
+    water: hasActiveSupply ? Math.max(75, pet.water) : Math.max(20, pet.water - decay),
+    energy: Math.max(25, pet.energy - Math.floor(decay * 0.7)),
+    play: Math.max(25, pet.play - Math.floor(decay * 0.85)),
+    supplyDaysRemaining: computedSupplyDays,
+  };
+}
+
+export function computePetAlerts(pets: AdoptedPet[], nowMs = Date.now()): PetAlert[] {
+  const alerts: PetAlert[] = [];
+  for (const rawPet of pets) {
+    const pet = computeEffectivePetStats(rawPet, nowMs);
+    if (pet.hunger < 72) {
+      alerts.push({
+        petId: pet.id,
+        petName: pet.name,
+        type: 'hunger',
+        label: 'Hungry',
+        currentValue: pet.hunger,
+        urgent: pet.hunger < 50,
+      });
+    }
+    if (pet.water < 72) {
+      alerts.push({
+        petId: pet.id,
+        petName: pet.name,
+        type: 'water',
+        label: 'Needs Water',
+        currentValue: pet.water,
+        urgent: pet.water < 50,
+      });
+    }
+    if (pet.energy < 70) {
+      alerts.push({
+        petId: pet.id,
+        petName: pet.name,
+        type: 'energy',
+        label: 'Tired',
+        currentValue: pet.energy,
+        urgent: pet.energy < 48,
+      });
+    }
+    if (pet.play < 74) {
+      alerts.push({
+        petId: pet.id,
+        petName: pet.name,
+        type: 'play',
+        label: 'Wants to Play',
+        currentValue: pet.play,
+        urgent: pet.play < 50,
+      });
+    }
+  }
+  return alerts;
+}
+
+export function sanitizeAdoptedPets(raw: unknown): AdoptedPet[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<PetId>();
+  const result: AdoptedPet[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const obj = item as Record<string, unknown>;
+    const id = obj.id as PetId;
+    if (!VALID_PET_IDS.has(id) || seen.has(id)) continue;
+    seen.add(id);
+    const catalog = getCatalogPetById(id);
+    const clampMeter = (val: unknown, fallback: number) =>
+      typeof val === 'number' && Number.isFinite(val)
+        ? Math.max(0, Math.min(100, Math.round(val)))
+        : fallback;
+
+    const cleanPet: AdoptedPet = {
+      id,
+      species:
+        typeof obj.species === 'string' && obj.species.trim()
+          ? obj.species.trim().slice(0, 40)
+          : catalog.species,
+      name:
+        typeof obj.name === 'string' && obj.name.trim()
+          ? obj.name.trim().slice(0, 30)
+          : catalog.name,
+      age:
+        typeof obj.age === 'number' && Number.isFinite(obj.age)
+          ? Math.max(1, Math.min(50, Math.round(obj.age)))
+          : catalog.age,
+      adoptedAt:
+        typeof obj.adoptedAt === 'string' && obj.adoptedAt.length >= 10 && obj.adoptedAt.length <= 40
+          ? obj.adoptedAt
+          : new Date().toISOString(),
+      happiness: clampMeter(obj.happiness, 100),
+      hunger: clampMeter(obj.hunger, 65),
+      water: clampMeter(obj.water, 68),
+      energy: clampMeter(obj.energy, 78),
+      play: clampMeter(obj.play, 70),
+    };
+
+    if (
+      typeof obj.supplyDaysRemaining === 'number' &&
+      Number.isFinite(obj.supplyDaysRemaining)
+    ) {
+      cleanPet.supplyDaysRemaining = Math.max(0, Math.min(30, Math.round(obj.supplyDaysRemaining)));
+    }
+    if (typeof obj.supplyUntilMs === 'number' && Number.isFinite(obj.supplyUntilMs)) {
+      cleanPet.supplyUntilMs = Math.max(0, Math.round(obj.supplyUntilMs));
+    }
+    if (typeof obj.lastCareAtMs === 'number' && Number.isFinite(obj.lastCareAtMs)) {
+      cleanPet.lastCareAtMs = Math.max(0, Math.round(obj.lastCareAtMs));
+    }
+
+    result.push(cleanPet);
+    if (result.length >= 4) break;
+  }
+  return result;
+}
+
+export async function loadParentAdoptedPets(parentKey: string): Promise<AdoptedPet[]> {
+  const userPath = `users/${parentKey}`;
+  try {
+    const userSnap = await getDoc(doc(db, 'users', parentKey));
+    if (userSnap.exists()) {
+      const userData = userSnap.data() as Record<string, unknown>;
+      const userPets = sanitizeAdoptedPets(userData.adoptedPets);
+      if (userPets.length > 0) return userPets;
+    }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.GET, userPath);
+  }
+
+  const path = `parents/${parentKey}`;
+  const ref = doc(db, 'parents', parentKey);
+  try {
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return [];
+    const data = snap.data() as Record<string, unknown>;
+    return sanitizeAdoptedPets(data.adoptedPets);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.GET, path);
+  }
+}
+
+export async function saveParentAdoptedPets(
+  parentKey: string,
+  adoptedPets: AdoptedPet[]
+): Promise<AdoptedPet[]> {
+  const cleanPets = sanitizeAdoptedPets(adoptedPets);
+  const path = `parents/${parentKey}`;
+  const ref = doc(db, 'parents', parentKey);
+  try {
+    await setDoc(
+      ref,
+      {
+        adoptedPets: cleanPets,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, path);
+  }
+
+  const userRef = doc(db, 'users', parentKey);
+  const userPath = `users/${parentKey}`;
+  try {
+    const userSnap = await getDoc(userRef);
+    if (userSnap.exists()) {
+      await setDoc(
+        userRef,
+        {
+          adoptedPets: cleanPets,
+          ownedPetIds: cleanPets.map((p) => p.id),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, userPath);
+  }
+
+  return cleanPets;
 }
 
 export interface PetBodyPartFact {
@@ -237,104 +479,3 @@ export const SA_HERBIVORE_CATALOG: PetCatalogItem[] = [
     ],
   },
 ];
-
-const VALID_PET_IDS: Set<PetId> = new Set([
-  'thabo-tortoise',
-  'zuri-rabbit',
-  'kudu-grysbok',
-  'biko-dassie',
-]);
-
-export function getCatalogPetById(id: PetId): PetCatalogItem {
-  return SA_HERBIVORE_CATALOG.find((item) => item.id === id) ?? SA_HERBIVORE_CATALOG[0];
-}
-
-export function createAdoptedPetRecord(item: PetCatalogItem): AdoptedPet {
-  return {
-    id: item.id,
-    species: item.species,
-    name: item.name,
-    age: item.age,
-    adoptedAt: new Date().toISOString(),
-    happiness: 100,
-    hunger: 80,
-  };
-}
-
-export function sanitizeAdoptedPets(raw: unknown): AdoptedPet[] {
-  if (!Array.isArray(raw)) return [];
-  const seen = new Set<PetId>();
-  const result: AdoptedPet[] = [];
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue;
-    const obj = item as Record<string, unknown>;
-    const id = obj.id as PetId;
-    if (!VALID_PET_IDS.has(id) || seen.has(id)) continue;
-    seen.add(id);
-    const catalog = getCatalogPetById(id);
-    result.push({
-      id,
-      species:
-        typeof obj.species === 'string' && obj.species.trim()
-          ? obj.species.trim().slice(0, 40)
-          : catalog.species,
-      name:
-        typeof obj.name === 'string' && obj.name.trim()
-          ? obj.name.trim().slice(0, 30)
-          : catalog.name,
-      age:
-        typeof obj.age === 'number' && Number.isFinite(obj.age)
-          ? Math.max(1, Math.min(50, Math.round(obj.age)))
-          : catalog.age,
-      adoptedAt:
-        typeof obj.adoptedAt === 'string' && obj.adoptedAt.length >= 10 && obj.adoptedAt.length <= 40
-          ? obj.adoptedAt
-          : new Date().toISOString(),
-      happiness:
-        typeof obj.happiness === 'number' && Number.isFinite(obj.happiness)
-          ? Math.max(0, Math.min(100, Math.round(obj.happiness)))
-          : 100,
-      hunger:
-        typeof obj.hunger === 'number' && Number.isFinite(obj.hunger)
-          ? Math.max(0, Math.min(100, Math.round(obj.hunger)))
-          : 80,
-    });
-    if (result.length >= 4) break;
-  }
-  return result;
-}
-
-export async function loadParentAdoptedPets(parentKey: string): Promise<AdoptedPet[]> {
-  const path = `parents/${parentKey}`;
-  const ref = doc(db, 'parents', parentKey);
-  try {
-    const snap = await getDoc(ref);
-    if (!snap.exists()) return [];
-    const data = snap.data() as Record<string, unknown>;
-    return sanitizeAdoptedPets(data.adoptedPets);
-  } catch (err) {
-    handleFirestoreError(err, OperationType.GET, path);
-  }
-}
-
-export async function saveParentAdoptedPets(
-  parentKey: string,
-  adoptedPets: AdoptedPet[]
-): Promise<AdoptedPet[]> {
-  const cleanPets = sanitizeAdoptedPets(adoptedPets);
-  const path = `parents/${parentKey}`;
-  const ref = doc(db, 'parents', parentKey);
-  try {
-    await setDoc(
-      ref,
-      {
-        adoptedPets: cleanPets,
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true }
-    );
-    return cleanPets;
-  } catch (err) {
-    handleFirestoreError(err, OperationType.UPDATE, path);
-  }
-}

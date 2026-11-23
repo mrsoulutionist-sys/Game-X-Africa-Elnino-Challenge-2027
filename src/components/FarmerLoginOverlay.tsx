@@ -9,9 +9,11 @@ import {
 } from 'lucide-react';
 import {
   SCHOOL_GRADES,
+  SUPPORTER_ROLES,
   type ParentLoginPayload,
   type SchoolGrade,
   type StudentLoginMetadata,
+  type SupporterRole,
 } from '../firebase/firebaseClient';
 
 type LoginTab = 'student' | 'parent';
@@ -44,7 +46,8 @@ export const FarmerLoginOverlay: React.FC<FarmerLoginOverlayProps> = ({
   const [studentGrade, setStudentGrade] = useState<SchoolGrade>('Grade 4');
   const [teacherName, setTeacherName] = useState('');
 
-  // Parent / Sponsor fields
+  // Parent / Sponsor / Teacher / Family fields
+  const [supporterRole, setSupporterRole] = useState<SupporterRole>('parent');
   const [parentPseudonym, setParentPseudonym] = useState('');
   const [parentPassword, setParentPassword] = useState('');
   const [parentSchoolName, setParentSchoolName] = useState('');
@@ -100,6 +103,7 @@ export const FarmerLoginOverlay: React.FC<FarmerLoginOverlayProps> = ({
     if (!canSubmitParent) return;
     const uniqueGrades = Array.from(new Set(parentGrades));
     await onParentLogin({
+      role: supporterRole,
       pseudonym: parentPseudonym,
       passcode: parentPassword,
       schoolName: parentSchoolName,
@@ -121,7 +125,7 @@ export const FarmerLoginOverlay: React.FC<FarmerLoginOverlayProps> = ({
         </div>
 
         <h1 className="mt-2 text-xl font-bold text-white">
-          {activeTab === 'student' ? 'Student Check-In' : 'Parent / Sponsor Check-In'}
+          {activeTab === 'student' ? 'Student Check-In' : 'Supporter & Parent Check-In'}
         </h1>
 
         {/* Split Login Two-Tab Toggle */}
@@ -157,7 +161,7 @@ export const FarmerLoginOverlay: React.FC<FarmerLoginOverlayProps> = ({
             }`}
           >
             <HeartHandshake className="w-3.5 h-3.5" />
-            <span>Parent / Sponsor Login</span>
+            <span>Parent / Sponsor</span>
           </button>
         </div>
 
@@ -260,10 +264,31 @@ export const FarmerLoginOverlay: React.FC<FarmerLoginOverlayProps> = ({
           <div className="mt-4 space-y-3">
             <div>
               <label
+                htmlFor="supporter-role-select"
+                className="block text-xs font-medium text-slate-300 mb-1"
+              >
+                Your Role
+              </label>
+              <select
+                id="supporter-role-select"
+                value={supporterRole}
+                onChange={(e) => setSupporterRole(e.target.value as SupporterRole)}
+                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500"
+              >
+                {SUPPORTER_ROLES.map((roleOpt) => (
+                  <option key={roleOpt.id} value={roleOpt.id}>
+                    {roleOpt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label
                 htmlFor="parent-pseudonym-input"
                 className="block text-xs font-medium text-slate-300 mb-1"
               >
-                Parent / Sponsor Pseudonym
+                Supporter / Parent Pseudonym
               </label>
               <input
                 id="parent-pseudonym-input"

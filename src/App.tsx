@@ -22,6 +22,10 @@ import {
   type ParentProfile,
   type StudentLoginMetadata,
 } from './firebase/firebaseClient';
+import {
+  recordStudentHarvest,
+  syncStudentActiveGrows,
+} from './firebase/storeService';
 import { workshopAudio } from './workshop/audio';
 import {
   COMPOST_CONTAINER_OPTIONS,
@@ -149,6 +153,8 @@ export function App() {
         setCompostModalOpen(true);
       },
       onDoor3Update: (updater, bonusLitres = 0, narration?: string) => {
+        const prevProfile = profileRef.current;
+        const nextDoor3Preview = prevProfile ? updater(prevProfile.door3) : null;
         persistProfileUpdate((prev) => {
           const nextDoor3 = updater(prev.door3);
           sceneRef.current?.syncCompostProgress(nextDoor3);
@@ -158,6 +164,39 @@ export function App() {
             litresSaved: prev.litresSaved + bonusLitres,
           };
         });
+        if (prevProfile && nextDoor3Preview) {
+          const nextSnapshot: FarmerProfile = {
+            ...prevProfile,
+            door3: nextDoor3Preview,
+            litresSaved: prevProfile.litresSaved + bonusLitres,
+          };
+          const uidPrefix = prevProfile.farmerKey.slice(0, 24);
+          if (prevProfile.door3.compostStep < 6 && nextDoor3Preview.compostStep >= 6) {
+            void recordStudentHarvest({
+              profile: nextSnapshot,
+              itemTitle: 'Rich School Compost Batch',
+              category: 'mulch_compost',
+              quantity: 2,
+              growId: `${uidPrefix}_door3_compost`,
+            }).catch((err) => {
+              console.error('Failed to publish Door 3 compost batch to store:', err);
+            });
+          } else if (prevProfile.door3.mulchStep < 4 && nextDoor3Preview.mulchStep >= 4) {
+            void recordStudentHarvest({
+              profile: nextSnapshot,
+              itemTitle: 'Moisture-Shield Mulch Kit',
+              category: 'mulch_compost',
+              quantity: 2,
+              growId: `${uidPrefix}_door3_mulch`,
+            }).catch((err) => {
+              console.error('Failed to publish Door 3 mulch kit to store:', err);
+            });
+          } else {
+            void syncStudentActiveGrows(nextSnapshot).catch((err) => {
+              console.error('Failed to sync Door 3 grow pipeline:', err);
+            });
+          }
+        }
         if (narration) {
           workshopVoiceover.speakCustom(narration);
         }
@@ -208,6 +247,9 @@ export function App() {
             `Welcome back, ${profile.farmerName}! Your farm workshop progress is restored.`
           );
         }
+        void syncStudentActiveGrows(profile).catch((err) => {
+          console.error('Failed to sync student active grows on login:', err);
+        });
       } catch (err) {
         setLoginError(err instanceof Error ? err.message : 'Unable to load farm profile.');
       } finally {
@@ -352,6 +394,7 @@ export function App() {
   const handlePlantSeed = useCallback(
     (tierIndex: number, cropId: CropId) => {
       const now = Date.now();
+      const prevSnapshot = profileRef.current;
       workshopAudio.playPlanting();
       persistProfileUpdate((prev) => {
         const nextTiers = prev.tiers.map((t, idx) =>
@@ -367,6 +410,19 @@ export function App() {
         sceneRef.current?.syncGardenTiers(prev.rackSize, nextTiers, toResilienceState(prev));
         return { ...prev, tiers: nextTiers };
       });
+      if (prevSnapshot) {
+        const nextSnapshot: FarmerProfile = {
+          ...prevSnapshot,
+          tiers: prevSnapshot.tiers.map((t, idx) =>
+            idx === tierIndex
+              ? { ...t, cropId, plantedAtMs: now, wateredAtMs: now }
+              : t
+          ),
+        };
+        void syncStudentActiveGrows(nextSnapshot).catch((err) => {
+          console.error('Failed to sync planted crop to store pipeline:', err);
+        });
+      }
       setNowMs(now);
     },
     [persistProfileUpdate]
@@ -398,6 +454,8 @@ export function App() {
   const handleHarvestTier = useCallback(
     (tierIndex: number) => {
       const now = Date.now();
+      const prevSnapshot = profileRef.current;
+      const harvestedCrop = getCropById(prevSnapshot?.tiers[tierIndex]?.cropId ?? null);
       workshopAudio.playPourAndBloom();
       persistProfileUpdate((prev) => {
         const tierCrop = getCropById(prev.tiers[tierIndex]?.cropId ?? null);
@@ -420,8 +478,26 @@ export function App() {
           tiers: nextTiers,
         };
       });
+      if (prevSnapshot) {
+        const yieldQty = Math.max(
+          1,
+          Math.min(8, Math.round((harvestedCrop?.servingsPerHarvest ?? 4) / 2))
+        );
+        void recordStudentHarvest({
+          profile: prevSnapshot,
+          itemTitle: harvestedCrop?.name ?? 'Fresh Garden Greens',
+          category: 'harvest_produce',
+          quantity: yieldQty,
+          growId: `${prevSnapshot.farmerKey.slice(0, 24)}_tier_${tierIndex}`,
+        }).catch((err) => {
+          console.error('Failed to record student harvest to Produce Store:', err);
+          workshopVoiceover.speakCustom(
+            'Your garden harvest was saved locally, but uploading to the Parent Store failed. Please check your connection and try harvesting another tier.'
+          );
+        });
+      }
       workshopVoiceover.speakCustom(
-        'Great harvest! Your shaded wicking pipe saved water through the dry spell. Pick a fresh seed to replant this tier.'
+        'Great harvest! Your shaded wicking pipe saved water through the dry spell. Your fresh harvest is now live on the School Produce Store!'
       );
     },
     [persistProfileUpdate]
@@ -512,6 +588,8 @@ export function App() {
       bonusLitres = 0,
       narration?: string
     ) => {
+      const prevProfile = profileRef.current;
+      const nextDoor3Preview = prevProfile ? updater(prevProfile.door3) : null;
       workshopAudio.playPickup();
       persistProfileUpdate((prev) => {
         const nextDoor3 = updater(prev.door3);
@@ -522,6 +600,39 @@ export function App() {
           litresSaved: prev.litresSaved + bonusLitres,
         };
       });
+      if (prevProfile && nextDoor3Preview) {
+        const nextSnapshot: FarmerProfile = {
+          ...prevProfile,
+          door3: nextDoor3Preview,
+          litresSaved: prevProfile.litresSaved + bonusLitres,
+        };
+        const uidPrefix = prevProfile.farmerKey.slice(0, 24);
+        if (prevProfile.door3.compostStep < 6 && nextDoor3Preview.compostStep >= 6) {
+          void recordStudentHarvest({
+            profile: nextSnapshot,
+            itemTitle: 'Rich School Compost Batch',
+            category: 'mulch_compost',
+            quantity: 2,
+            growId: `${uidPrefix}_door3_compost`,
+          }).catch((err) => {
+            console.error('Failed to publish Door 3 compost batch to store:', err);
+          });
+        } else if (prevProfile.door3.mulchStep < 4 && nextDoor3Preview.mulchStep >= 4) {
+          void recordStudentHarvest({
+            profile: nextSnapshot,
+            itemTitle: 'Moisture-Shield Mulch Kit',
+            category: 'mulch_compost',
+            quantity: 2,
+            growId: `${uidPrefix}_door3_mulch`,
+          }).catch((err) => {
+            console.error('Failed to publish Door 3 mulch kit to store:', err);
+          });
+        } else {
+          void syncStudentActiveGrows(nextSnapshot).catch((err) => {
+            console.error('Failed to sync Door 3 progress to store pipeline:', err);
+          });
+        }
+      }
       if (narration) {
         workshopAudio.playPourAndBloom();
         workshopVoiceover.speakCustom(narration);

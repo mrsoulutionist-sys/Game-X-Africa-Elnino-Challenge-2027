@@ -8,7 +8,7 @@ import {
   setDoc,
   updateDoc,
 } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+import fallbackFirebaseConfig from '../../firebase-applet-config.json';
 import {
   DEFAULT_DOOR3_PROGRESS,
   type CompostContainerType,
@@ -40,6 +40,15 @@ export const SCHOOL_GRADES = [
 
 export type SchoolGrade = (typeof SCHOOL_GRADES)[number];
 
+export const SUPPORTER_ROLES = [
+  { id: 'parent', label: 'Parent / Guardian' },
+  { id: 'sponsor', label: 'Community Sponsor' },
+  { id: 'teacher', label: 'Teacher / Educator' },
+  { id: 'family', label: 'Friends & Family' },
+] as const;
+
+export type SupporterRole = (typeof SUPPORTER_ROLES)[number]['id'];
+
 export interface StudentLoginMetadata {
   schoolName: string;
   grade: SchoolGrade;
@@ -48,14 +57,16 @@ export interface StudentLoginMetadata {
 
 export interface ParentProfile {
   parentKey: string;
-  role: 'parent';
+  role: SupporterRole;
   pseudonym: string;
   schoolName: string;
   schoolKey: string;
   grades: SchoolGrade[];
+  walletBalanceZar?: number;
 }
 
 export interface ParentLoginPayload {
+  role?: SupporterRole;
   pseudonym: string;
   passcode: string;
   schoolName: string;
@@ -102,6 +113,20 @@ export interface FirestoreErrorInfo {
     userId?: string | null;
   };
 }
+
+const envMeta = (import.meta as unknown as { env?: Record<string, string | undefined> }).env ?? {};
+
+const firebaseConfig = {
+  apiKey: envMeta.VITE_FIREBASE_API_KEY || fallbackFirebaseConfig.apiKey,
+  authDomain: envMeta.VITE_FIREBASE_AUTH_DOMAIN || fallbackFirebaseConfig.authDomain,
+  projectId: envMeta.VITE_FIREBASE_PROJECT_ID || fallbackFirebaseConfig.projectId,
+  storageBucket: envMeta.VITE_FIREBASE_STORAGE_BUCKET || fallbackFirebaseConfig.storageBucket,
+  messagingSenderId:
+    envMeta.VITE_FIREBASE_MESSAGING_SENDER_ID || fallbackFirebaseConfig.messagingSenderId,
+  appId: envMeta.VITE_FIREBASE_APP_ID || fallbackFirebaseConfig.appId,
+  firestoreDatabaseId:
+    envMeta.VITE_FIREBASE_DATABASE_ID || fallbackFirebaseConfig.firestoreDatabaseId,
+};
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
@@ -176,7 +201,7 @@ export async function deriveParentKey(pseudonym: string, passcode: string): Prom
 }
 
 export function normalizeSchoolKey(schoolName: string): string {
-  return schoolName.trim().toLowerCase().slice(0, 100);
+  return schoolName.trim().toLowerCase().replace(/\s+/g, ' ').slice(0, 100);
 }
 
 const VALID_KITCHEN_STEPS: Set<BuildStepId> = new Set([
@@ -279,6 +304,113 @@ function sanitizeTiers(rawTiers: unknown, rackSize: number): TierSaveState[] {
 }
 
 const VALID_SCHOOL_GRADES: Set<SchoolGrade> = new Set(SCHOOL_GRADES);
+const VALID_SUPPORTER_ROLES: Set<SupporterRole> = new Set([
+  'parent',
+  'sponsor',
+  'teacher',
+  'family',
+]);
+
+async function syncUnifiedUserAccount(params: {
+  uid: string;
+  name: string;
+  role: 'student' | SupporterRole;
+  schoolId: string;
+  schoolName: string;
+  grade: string;
+  grades?: SchoolGrade[];
+  initialWalletBalanceZar?: number;
+  initialAdoptedPets?: unknown[];
+}): Promise<{ walletBalanceZar: number }> {
+  const path = `users/${params.uid}`;
+  const ref = doc(db, 'users', params.uid);
+
+  let snap;
+  try {
+    snap = await getDoc(ref);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.GET, path);
+  }
+
+  const safeName = params.name.trim().slice(0, 40) || 'Farmer';
+  const safeSchoolName = params.schoolName.trim().slice(0, 100);
+  const safeSchoolId = params.schoolId.trim().slice(0, 100);
+  const safeGrade = params.grade.trim().slice(0, 120) || 'Grade 4';
+
+  if (snap.exists()) {
+    const existing = snap.data() as Record<string, unknown>;
+    const existingWallet =
+      typeof existing.walletBalanceZar === 'number' && Number.isFinite(existing.walletBalanceZar)
+        ? Math.max(0, existing.walletBalanceZar)
+        : 0;
+    const resolvedWallet = Math.max(existingWallet, params.initialWalletBalanceZar ?? 0);
+
+    const updatePayload: Record<string, unknown> = {
+      name: safeName,
+      role: params.role,
+      schoolId: safeSchoolId,
+      schoolName: safeSchoolName,
+      grade: safeGrade,
+      updatedAt: serverTimestamp(),
+    };
+    if (params.grades && params.grades.length > 0) {
+      updatePayload.grades = params.grades;
+    }
+    if (resolvedWallet !== existingWallet) {
+      updatePayload.walletBalanceZar = resolvedWallet;
+    }
+    if (
+      Array.isArray(params.initialAdoptedPets) &&
+      params.initialAdoptedPets.length > 0 &&
+      (!Array.isArray(existing.adoptedPets) || existing.adoptedPets.length === 0)
+    ) {
+      updatePayload.adoptedPets = params.initialAdoptedPets;
+      updatePayload.ownedPetIds = params.initialAdoptedPets
+        .map((p) => (p && typeof p === 'object' ? (p as { id?: string }).id : null))
+        .filter((id): id is string => typeof id === 'string');
+    }
+
+    try {
+      await updateDoc(ref, updatePayload);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, path);
+    }
+    return { walletBalanceZar: resolvedWallet };
+  }
+
+  const walletBalanceZar = Math.max(0, params.initialWalletBalanceZar ?? 0);
+  const freshDoc: Record<string, unknown> = {
+    uid: params.uid,
+    name: safeName,
+    role: params.role,
+    schoolId: safeSchoolId,
+    schoolName: safeSchoolName,
+    grade: safeGrade,
+    walletBalanceZar,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+  if (params.grades && params.grades.length > 0) {
+    freshDoc.grades = params.grades;
+  }
+  if (Array.isArray(params.initialAdoptedPets) && params.initialAdoptedPets.length > 0) {
+    freshDoc.adoptedPets = params.initialAdoptedPets;
+    freshDoc.ownedPetIds = params.initialAdoptedPets
+      .map((p) => (p && typeof p === 'object' ? (p as { id?: string }).id : null))
+      .filter((id): id is string => typeof id === 'string');
+  } else {
+    freshDoc.adoptedPets = [];
+    freshDoc.ownedPetIds = [];
+  }
+
+  try {
+    await setDoc(ref, freshDoc);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.CREATE, path);
+  }
+
+  return { walletBalanceZar };
+}
 
 export async function loginOrCreateFarmer(
   rawName: string,
@@ -381,6 +513,16 @@ export async function loginOrCreateFarmer(
       ...(resolvedGrade ? { grade: resolvedGrade } : {}),
       ...(resolvedTeacher ? { teacherName: resolvedTeacher } : {}),
     };
+
+    await syncUnifiedUserAccount({
+      uid: farmerKey,
+      name: profile.farmerName,
+      role: 'student',
+      schoolId: resolvedSchoolKey ?? 'community',
+      schoolName: resolvedSchoolName ?? 'Community School',
+      grade: resolvedGrade ?? 'Grade 4',
+    });
+
     return { profile, isReturning: true };
   }
 
@@ -423,6 +565,15 @@ export async function loginOrCreateFarmer(
     handleFirestoreError(err, OperationType.CREATE, path);
   }
 
+  await syncUnifiedUserAccount({
+    uid: farmerKey,
+    name: freshProfile.farmerName,
+    role: 'student',
+    schoolId: schoolKey || 'community',
+    schoolName: cleanSchoolName || 'Community School',
+    grade: cleanGrade ?? 'Grade 4',
+  });
+
   return { profile: freshProfile, isReturning: false };
 }
 
@@ -432,6 +583,9 @@ export async function loginOrCreateParent(
   const pseudonym = payload.pseudonym.trim().slice(0, 40) || 'Parent';
   const schoolName = payload.schoolName.trim().slice(0, 100);
   const schoolKey = normalizeSchoolKey(schoolName);
+  const cleanRole: SupporterRole =
+    payload.role && VALID_SUPPORTER_ROLES.has(payload.role) ? payload.role : 'parent';
+
   const cleanGrades: SchoolGrade[] = [];
   for (const g of payload.grades) {
     if (VALID_SCHOOL_GRADES.has(g) && !cleanGrades.includes(g)) {
@@ -455,21 +609,22 @@ export async function loginOrCreateParent(
     handleFirestoreError(err, OperationType.GET, path);
   }
 
-  const profile: ParentProfile = {
-    parentKey,
-    role: 'parent',
-    pseudonym,
-    schoolName,
-    schoolKey,
-    grades: cleanGrades,
-  };
-
   if (snap.exists()) {
+    const existingData = snap.data() as Record<string, unknown>;
+    const existingWallet =
+      typeof existingData.walletBalanceZar === 'number' &&
+      Number.isFinite(existingData.walletBalanceZar)
+        ? Math.max(0, existingData.walletBalanceZar)
+        : 0;
+    const existingPets = Array.isArray(existingData.adoptedPets)
+      ? (existingData.adoptedPets as unknown[])
+      : [];
+
     try {
       await setDoc(
         ref,
         {
-          role: 'parent',
+          role: cleanRole,
           pseudonym,
           schoolName,
           schoolKey,
@@ -481,8 +636,40 @@ export async function loginOrCreateParent(
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, path);
     }
+
+    const synced = await syncUnifiedUserAccount({
+      uid: parentKey,
+      name: pseudonym,
+      role: cleanRole,
+      schoolId: schoolKey,
+      schoolName,
+      grade: cleanGrades.join(', '),
+      grades: cleanGrades,
+      initialWalletBalanceZar: existingWallet,
+      initialAdoptedPets: existingPets,
+    });
+
+    const profile: ParentProfile = {
+      parentKey,
+      role: cleanRole,
+      pseudonym,
+      schoolName,
+      schoolKey,
+      grades: cleanGrades,
+      walletBalanceZar: synced.walletBalanceZar,
+    };
     return { profile, isReturning: true };
   }
+
+  const profile: ParentProfile = {
+    parentKey,
+    role: cleanRole,
+    pseudonym,
+    schoolName,
+    schoolKey,
+    grades: cleanGrades,
+    walletBalanceZar: 0,
+  };
 
   try {
     await setDoc(
@@ -497,6 +684,18 @@ export async function loginOrCreateParent(
   } catch (err) {
     handleFirestoreError(err, OperationType.CREATE, path);
   }
+
+  await syncUnifiedUserAccount({
+    uid: parentKey,
+    name: pseudonym,
+    role: cleanRole,
+    schoolId: schoolKey,
+    schoolName,
+    grade: cleanGrades.join(', '),
+    grades: cleanGrades,
+    initialWalletBalanceZar: 0,
+    initialAdoptedPets: [],
+  });
 
   return { profile, isReturning: false };
 }
