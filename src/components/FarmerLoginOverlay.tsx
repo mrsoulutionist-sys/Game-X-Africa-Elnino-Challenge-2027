@@ -1,12 +1,17 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ArrowRight,
   GraduationCap,
   HeartHandshake,
   Plus,
+  ShieldCheck,
   Sprout,
   X,
 } from 'lucide-react';
+import {
+  getAdminClaimStatus,
+  type AdminClaimStatus,
+} from '../firebase/adminService';
 import {
   SCHOOL_GRADES,
   SUPPORTER_ROLES,
@@ -16,7 +21,7 @@ import {
   type SupporterRole,
 } from '../firebase/firebaseClient';
 
-type LoginTab = 'student' | 'parent';
+type LoginTab = 'student' | 'parent' | 'admin';
 
 interface FarmerLoginOverlayProps {
   onStudentLogin: (
@@ -25,6 +30,7 @@ interface FarmerLoginOverlayProps {
     meta: StudentLoginMetadata
   ) => Promise<void>;
   onParentLogin: (payload: ParentLoginPayload) => Promise<void>;
+  onAdminLogin: (adminName: string, passcode: string) => Promise<void>;
   loading: boolean;
   errorMsg: string | null;
   onClearError?: () => void;
@@ -33,6 +39,7 @@ interface FarmerLoginOverlayProps {
 export const FarmerLoginOverlay: React.FC<FarmerLoginOverlayProps> = ({
   onStudentLogin,
   onParentLogin,
+  onAdminLogin,
   loading,
   errorMsg,
   onClearError,
@@ -53,6 +60,26 @@ export const FarmerLoginOverlay: React.FC<FarmerLoginOverlayProps> = ({
   const [parentSchoolName, setParentSchoolName] = useState('');
   const [parentGrades, setParentGrades] = useState<SchoolGrade[]>(['Grade 4']);
 
+  // Admin fields
+  const [adminName, setAdminName] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminStatus, setAdminStatus] = useState<AdminClaimStatus | null>(null);
+
+  useEffect(() => {
+    if (activeTab !== 'admin') return;
+    let mounted = true;
+    void getAdminClaimStatus()
+      .then((status) => {
+        if (mounted) setAdminStatus(status);
+      })
+      .catch(() => {
+        if (mounted) setAdminStatus(null);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [activeTab]);
+
   const canSubmitStudent =
     farmerName.trim().length > 0 &&
     studentPassword.length > 0 &&
@@ -65,6 +92,9 @@ export const FarmerLoginOverlay: React.FC<FarmerLoginOverlayProps> = ({
     parentSchoolName.trim().length > 0 &&
     parentGrades.length > 0 &&
     !loading;
+
+  const canSubmitAdmin =
+    adminName.trim().length > 0 && adminPassword.length >= 4 && !loading;
 
   const handleSwitchTab = (tab: LoginTab) => {
     setActiveTab(tab);
@@ -100,6 +130,12 @@ export const FarmerLoginOverlay: React.FC<FarmerLoginOverlayProps> = ({
       return;
     }
 
+    if (activeTab === 'admin') {
+      if (!canSubmitAdmin) return;
+      await onAdminLogin(adminName, adminPassword);
+      return;
+    }
+
     if (!canSubmitParent) return;
     const uniqueGrades = Array.from(new Set(parentGrades));
     await onParentLogin({
@@ -125,28 +161,32 @@ export const FarmerLoginOverlay: React.FC<FarmerLoginOverlayProps> = ({
         </div>
 
         <h1 className="mt-2 text-xl font-bold text-white">
-          {activeTab === 'student' ? 'Student Check-In' : 'Supporter & Parent Check-In'}
+          {activeTab === 'student'
+            ? 'Student Check-In'
+            : activeTab === 'admin'
+              ? 'Admin Control Check-In'
+              : 'Supporter & Parent Check-In'}
         </h1>
 
-        {/* Split Login Two-Tab Toggle */}
+        {/* Split Login Three-Tab Toggle */}
         <div
           role="tablist"
           aria-label="Login role selector"
-          className="mt-4 grid grid-cols-2 gap-1.5 rounded-xl bg-slate-900 p-1 border border-slate-800"
+          className="mt-4 grid grid-cols-3 gap-1.5 rounded-xl bg-slate-900 p-1 border border-slate-800"
         >
           <button
             type="button"
             role="tab"
             aria-selected={activeTab === 'student'}
             onClick={() => handleSwitchTab('student')}
-            className={`flex items-center justify-center gap-1.5 rounded-lg py-2 px-3 text-xs font-semibold transition-colors cursor-pointer ${
+            className={`flex items-center justify-center gap-1 rounded-lg py-2 px-2 text-xs font-semibold transition-colors cursor-pointer ${
               activeTab === 'student'
                 ? 'bg-emerald-600 text-white shadow'
                 : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
             }`}
           >
-            <GraduationCap className="w-3.5 h-3.5" />
-            <span>Student Login</span>
+            <GraduationCap className="w-3.5 h-3.5 shrink-0" />
+            <span>Student</span>
           </button>
 
           <button
@@ -154,14 +194,29 @@ export const FarmerLoginOverlay: React.FC<FarmerLoginOverlayProps> = ({
             role="tab"
             aria-selected={activeTab === 'parent'}
             onClick={() => handleSwitchTab('parent')}
-            className={`flex items-center justify-center gap-1.5 rounded-lg py-2 px-3 text-xs font-semibold transition-colors cursor-pointer ${
+            className={`flex items-center justify-center gap-1 rounded-lg py-2 px-2 text-xs font-semibold transition-colors cursor-pointer ${
               activeTab === 'parent'
                 ? 'bg-amber-600 text-white shadow'
                 : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
             }`}
           >
-            <HeartHandshake className="w-3.5 h-3.5" />
-            <span>Parent / Sponsor</span>
+            <HeartHandshake className="w-3.5 h-3.5 shrink-0" />
+            <span>Parent</span>
+          </button>
+
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'admin'}
+            onClick={() => handleSwitchTab('admin')}
+            className={`flex items-center justify-center gap-1 rounded-lg py-2 px-2 text-xs font-semibold transition-colors cursor-pointer ${
+              activeTab === 'admin'
+                ? 'bg-sky-600 text-white shadow'
+                : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
+            }`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+            <span>Admin</span>
           </button>
         </div>
 
@@ -389,31 +444,93 @@ export const FarmerLoginOverlay: React.FC<FarmerLoginOverlayProps> = ({
           </div>
         )}
 
+        {activeTab === 'admin' && (
+          <div className="mt-4 space-y-3">
+            <div className="rounded-xl bg-sky-950/40 border border-sky-500/35 p-3 text-xs text-sky-200 leading-relaxed">
+              {adminStatus?.claimed
+                ? `Primary Admin (${adminStatus.primaryAdminName ?? 'Claimed'}) is registered. Enter your Admin Name and passcode to unlock Competition Timer, Challenge Rules, and Document Uploads.`
+                : 'First-Run Admin Setup: No primary admin has been claimed yet. Choose your Admin Name and passcode (4+ chars) to register as the Admin.'}
+            </div>
+
+            <div>
+              <label
+                htmlFor="admin-name-input"
+                className="block text-xs font-medium text-slate-300 mb-1"
+              >
+                Admin Name
+              </label>
+              <input
+                id="admin-name-input"
+                type="text"
+                value={adminName}
+                onChange={(e) => setAdminName(e.target.value)}
+                maxLength={40}
+                placeholder="e.g. Coordinator"
+                autoFocus
+                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="admin-passcode-input"
+                className="block text-xs font-medium text-slate-300 mb-1"
+              >
+                Admin Passcode (min 4 characters)
+              </label>
+              <input
+                id="admin-passcode-input"
+                type="password"
+                value={adminPassword}
+                onChange={(e) => setAdminPassword(e.target.value)}
+                placeholder="Enter admin passcode"
+                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+              />
+            </div>
+          </div>
+        )}
+
         {errorMsg && (
           <p className="mt-3 text-xs text-rose-400 font-medium">{errorMsg}</p>
         )}
 
         <button
           type="submit"
-          disabled={activeTab === 'student' ? !canSubmitStudent : !canSubmitParent}
+          disabled={
+            activeTab === 'student'
+              ? !canSubmitStudent
+              : activeTab === 'admin'
+                ? !canSubmitAdmin
+                : !canSubmitParent
+          }
           className={`mt-5 w-full flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold transition-colors ${
             activeTab === 'student'
               ? canSubmitStudent
                 ? 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer'
                 : 'bg-slate-800 text-slate-500 cursor-not-allowed'
-              : canSubmitParent
-                ? 'bg-amber-600 hover:bg-amber-500 text-white cursor-pointer'
-                : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+              : activeTab === 'admin'
+                ? canSubmitAdmin
+                  ? 'bg-sky-600 hover:bg-sky-500 text-white cursor-pointer'
+                  : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                : canSubmitParent
+                  ? 'bg-amber-600 hover:bg-amber-500 text-white cursor-pointer'
+                  : 'bg-slate-800 text-slate-500 cursor-not-allowed'
           }`}
         >
           <span>
             {loading
               ? activeTab === 'student'
                 ? 'Loading Farm...'
-                : 'Opening Portal...'
+                : activeTab === 'admin'
+                  ? 'Verifying Admin...'
+                  : 'Opening Portal...'
               : activeTab === 'student'
                 ? 'Enter Workshop'
-                : 'Enter Parent Portal'}
+                : activeTab === 'admin'
+                  ? adminStatus?.claimed
+                    ? 'Sign In as Admin'
+                    : 'Claim Admin & Enter'
+                  : 'Enter Parent Portal'}
           </span>
           <ArrowRight className="w-4 h-4" />
         </button>

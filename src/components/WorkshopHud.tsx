@@ -6,8 +6,6 @@ import {
   VolumeX,
   Sparkles,
   Droplets,
-  Trees,
-  Hammer,
   LogOut,
   Sprout,
   ChevronDown,
@@ -15,8 +13,19 @@ import {
   Clock,
   Recycle,
   CheckCircle2,
+  Sun,
+  Lock,
+  Timer,
+  FileText,
+  Megaphone,
+  X,
+  Footprints,
 } from 'lucide-react';
-import type { ActiveZone } from '../firebase/firebaseClient';
+import {
+  BANNER_STAGE_OPTIONS,
+  formatStopwatchMs,
+  type ChallengeBannerItem,
+} from '../firebase/adminService';
 import {
   countDoor3CompletedWorkstations,
   type Door3ProgressState,
@@ -42,6 +51,14 @@ interface WorkshopHudProps {
   shadeClothInstalled: boolean;
   tiers: TierSaveState[];
   door3: Door3ProgressState;
+  compostYieldsSinceRefresh: number;
+  compostYieldCycleLimit: number;
+  competitionTimerEnabled: boolean;
+  competitionElapsedMs: number;
+  bestCompetitionMs: number | null;
+  activeBanner: ChallengeBannerItem | null;
+  onDismissBanner: () => void;
+  adminDocCount: number;
   nowMs: number;
   rackDropdownOpen: boolean;
   compostDropdownOpen: boolean;
@@ -54,8 +71,9 @@ interface WorkshopHudProps {
   onReset: () => void;
   onOpenWickExplainer: () => void;
   onOpenRackManager: () => void;
+  onOpenElNinoHub: () => void;
   onOpenCompostStation: (workstation?: 1 | 2 | 3) => void;
-  onSwitchZone: (zone: ActiveZone) => void;
+  onOpenAdminDocs: () => void;
   onLogout: () => void;
 }
 
@@ -76,6 +94,14 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
   shadeClothInstalled,
   tiers,
   door3,
+  compostYieldsSinceRefresh,
+  compostYieldCycleLimit,
+  competitionTimerEnabled,
+  competitionElapsedMs,
+  bestCompetitionMs,
+  activeBanner,
+  onDismissBanner,
+  adminDocCount,
   nowMs,
   rackDropdownOpen,
   compostDropdownOpen,
@@ -88,8 +114,9 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
   onReset,
   onOpenWickExplainer,
   onOpenRackManager,
+  onOpenElNinoHub,
   onOpenCompostStation,
-  onSwitchZone,
+  onOpenAdminDocs,
   onLogout,
 }) => {
   const step = BUILD_STEPS[hudState.stepId];
@@ -98,8 +125,14 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
   const isCompost = hudState.activeZone === 'compost';
   const isComplete = hudState.stepId === 'COMPLETE';
   const door3DoneCount = countDoor3CompletedWorkstations(door3);
+  const safeLimit = Math.max(1, compostYieldCycleLimit);
+  const yieldsRemaining = Math.max(0, safeLimit - compostYieldsSinceRefresh);
+  const compostNeedsRefresh = compostYieldsSinceRefresh >= safeLimit;
   const ringCircumference = 2 * Math.PI * 16;
   const ringOffset = ringCircumference * (1 - hudState.subProgress);
+  const activeBannerStageLabel = activeBanner
+    ? BANNER_STAGE_OPTIONS.find((s) => s.id === activeBanner.stage)?.label ?? 'Game Alert'
+    : '';
 
   return (
     <>
@@ -147,7 +180,69 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
         )}
       </div>
 
-      {/* Top-Left Compact Zone, Quick 3-Door Switcher & Collapsible Dropdowns */}
+      {/* Intermittent Admin Banner (1-min blurb every 2 min, Scroll or Flash) */}
+      {activeBanner && (
+        activeBanner.style === 'scroll' ? (
+          <div
+            role="status"
+            aria-live="polite"
+            className="fixed top-[4.5rem] inset-x-0 z-30 pointer-events-none"
+          >
+            <div className="relative w-full overflow-hidden bg-slate-950/95 border-y-2 border-amber-400/85 py-2 pr-11 shadow-2xl">
+              <div className="animate-banner-marquee items-center gap-4 text-xs sm:text-sm font-bold text-amber-100">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-amber-400 text-slate-950 font-mono text-[10px] uppercase tracking-wider shrink-0">
+                  <Megaphone className="w-3 h-3" />
+                  <span>{activeBannerStageLabel}</span>
+                </span>
+                <span>{activeBanner.text}</span>
+                <span className="text-emerald-400 font-mono text-xs px-4" aria-hidden="true">
+                  ★ GAME X AFRICA · EL NIÑO CHALLENGE ★
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={onDismissBanner}
+                aria-label="Dismiss announcement banner"
+                className="pointer-events-auto absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div
+            role="status"
+            aria-live="polite"
+            className="fixed top-[4.5rem] left-1/2 -translate-x-1/2 z-30 w-[min(92vw,34rem)] pointer-events-auto"
+          >
+            <div className="animate-banner-flash rounded-2xl bg-slate-950/95 border-2 border-amber-400 px-4 py-2.5 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="w-8 h-8 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center shrink-0">
+                  <Megaphone className="w-4 h-4" />
+                </span>
+                <div className="min-w-0">
+                  <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-400 truncate">
+                    {activeBannerStageLabel}
+                  </div>
+                  <div className="text-xs sm:text-sm font-bold text-amber-100 leading-snug">
+                    {activeBanner.text}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onDismissBanner}
+                aria-label="Dismiss announcement banner"
+                className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700 shrink-0 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )
+      )}
+
+      {/* Top-Left Compact Zone, Non-Clickable Round-Loop Wayfinder & Collapsible Dropdowns */}
       <div className="fixed top-4 left-4 z-20 flex flex-col items-start gap-2 pointer-events-auto max-w-[70vw]">
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -192,52 +287,32 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
             )}
           </button>
 
-          {/* Door 1: Kitchen */}
-          {!isKitchen && (
-            <button
-              type="button"
-              onClick={() => onSwitchZone('kitchen')}
-              className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold border bg-slate-950/90 hover:bg-slate-900 text-slate-200 border-slate-700/80 shadow-lg transition-colors cursor-pointer"
-            >
-              <Hammer className="w-3.5 h-3.5 text-amber-300" />
-              <span>Door 1: Kitchen</span>
-            </button>
-          )}
-
-          {/* Door 2: Garden Yard */}
-          {!isGarden && (
-            <button
-              type="button"
-              onClick={() => onSwitchZone('garden')}
-              className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold border shadow-lg transition-colors cursor-pointer ${
-                isKitchen && isComplete
-                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-400'
-                  : 'bg-slate-950/90 hover:bg-slate-900 text-slate-200 border-slate-700/80'
-              }`}
-            >
-              <Trees className="w-3.5 h-3.5 text-emerald-300" />
-              <span>Door 2: Garden</span>
-              {readyPipeCount > 0 && isKitchen && (
-                <span className="ml-0.5 px-1.5 py-0.5 rounded bg-emerald-500/25 text-emerald-200 font-mono text-[10px]">
-                  Pipe Ready
-                </span>
-              )}
-            </button>
-          )}
-
-          {/* Door 3: Recycling & Composting Station */}
-          {!isCompost && (
-            <button
-              type="button"
-              onClick={() => onSwitchZone('compost')}
-              className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold border bg-slate-950/90 hover:bg-slate-900 text-slate-200 border-amber-500/45 shadow-lg transition-colors cursor-pointer"
-            >
-              <Recycle className="w-3.5 h-3.5 text-amber-300" />
-              <span>Door 3: Compost</span>
-              <span className="ml-0.5 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-200 font-mono text-[10px] tabular-nums">
-                {door3DoneCount}/3
+          {/* Non-clickable Round-Loop Walk-Through Door Indicator */}
+          <div
+            title="Walk toward either South doorway inside the 3D room to walk straight into the next zone"
+            className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold border bg-slate-950/90 text-slate-200 border-slate-700/80 shadow-lg select-none"
+          >
+            <Footprints className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span className="hidden md:inline text-slate-300">
+              {isKitchen
+                ? 'South Doors → Garden (2) · Compost (3)'
+                : isGarden
+                  ? 'South Doors → Kitchen (1) · Compost (3)'
+                  : 'South Doors → Garden (2) · Kitchen (1)'}
+            </span>
+            <span className="md:hidden text-slate-300">Walk South Doors</span>
+            {isKitchen && isComplete && readyPipeCount > 0 && (
+              <span className="ml-0.5 px-1.5 py-0.5 rounded bg-emerald-500/25 text-emerald-200 font-mono text-[10px]">
+                Pipe Ready · Walk Door 2
               </span>
-            </button>
+            )}
+          </div>
+
+          {compostNeedsRefresh && !isCompost && (
+            <div className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold border bg-amber-500/95 text-slate-950 border-amber-300 shadow-lg select-none">
+              <Recycle className="w-3.5 h-3.5 shrink-0" />
+              <span>Door 3: Compost Needs Batch (Walk South)</span>
+            </div>
           )}
 
           {isGarden && (
@@ -248,7 +323,19 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
                 className="flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400 px-3 py-2 text-xs font-semibold shadow-lg transition-colors cursor-pointer"
               >
                 <Sprout className="w-3.5 h-3.5" />
-                <span>Rack &amp; Defense</span>
+                <span>Vertical Rack</span>
+                <span className="ml-0.5 px-1.5 py-0.5 rounded bg-slate-950/40 text-emerald-100 font-mono text-[10px] tabular-nums">
+                  {yieldsRemaining}/{safeLimit}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={onOpenElNinoHub}
+                className="flex items-center gap-1.5 rounded-xl bg-sky-700/90 hover:bg-sky-600 text-white border border-sky-400/70 px-3 py-2 text-xs font-semibold shadow-lg transition-colors cursor-pointer"
+              >
+                <Sun className="w-3.5 h-3.5 text-amber-300" />
+                <span>El Niño Defense</span>
                 <span className="ml-0.5 px-1.5 py-0.5 rounded bg-slate-950/50 text-sky-200 font-mono text-[10px] tabular-nums">
                   {Math.round(jojoLitres)}L
                 </span>
@@ -437,6 +524,18 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
             <span className="hidden md:inline">How Wicks Work</span>
           </button>
 
+          {adminDocCount > 0 && (
+            <button
+              type="button"
+              onClick={onOpenAdminDocs}
+              title="View Guides & Admin Documents"
+              className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold bg-slate-950/90 text-amber-300 border border-amber-500/40 hover:bg-slate-900 transition-colors cursor-pointer"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Guides ({adminDocCount})</span>
+            </button>
+          )}
+
           {hudState.cutawayAvailable && (
             <button
               type="button"
@@ -505,6 +604,54 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
               {g.label}
             </button>
           ))}
+        </div>
+
+        {/* Competition Speed Timer Pill + Grayed-Out Admin-Only Toggle */}
+        <div
+          title="Competition Speed Timer toggle is grayed out and restricted to Admin"
+          className="flex items-center gap-2 rounded-xl bg-slate-950/90 border border-slate-800 px-2.5 py-1.5 shadow-lg"
+        >
+          <Timer
+            className={`w-3.5 h-3.5 shrink-0 ${
+              competitionTimerEnabled ? 'text-amber-300' : 'text-slate-500'
+            }`}
+          />
+          <div className="flex flex-col leading-tight">
+            <span
+              className={`text-[11px] font-mono font-bold tabular-nums ${
+                competitionTimerEnabled ? 'text-amber-200' : 'text-slate-400'
+              }`}
+            >
+              {competitionTimerEnabled
+                ? `RACE ${formatStopwatchMs(competitionElapsedMs)}`
+                : 'Timer Off'}
+            </span>
+            {competitionTimerEnabled && bestCompetitionMs !== null ? (
+              <span className="text-[9px] font-mono text-emerald-400 tabular-nums">
+                Best {formatStopwatchMs(bestCompetitionMs)}
+              </span>
+            ) : (
+              <span className="text-[9px] font-mono text-slate-500 flex items-center gap-0.5">
+                <Lock className="w-2.5 h-2.5" />
+                <span>Admin Only</span>
+              </span>
+            )}
+          </div>
+
+          <button
+            type="button"
+            role="switch"
+            aria-checked={competitionTimerEnabled}
+            aria-label="Competition timer toggle (Admin only)"
+            disabled
+            className="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-slate-700 bg-slate-800/80 opacity-45 cursor-not-allowed grayscale"
+          >
+            <span
+              className={`inline-block h-3.5 w-3.5 transform rounded-full bg-slate-400 transition-transform ${
+                competitionTimerEnabled ? 'translate-x-4' : 'translate-x-0.5'
+              }`}
+            />
+          </button>
         </div>
       </div>
     </>

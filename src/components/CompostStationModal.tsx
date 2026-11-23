@@ -37,8 +37,12 @@ interface CompostStationModalProps {
   gradeTier: GradeTier;
   progress: Door3ProgressState;
   litresSaved: number;
+  compostYieldsSinceRefresh: number;
+  compostYieldCycleLimit: number;
+  compostCycleCount: number;
   onClose: () => void;
   onUpdateProgress: (updater: (prev: Door3ProgressState) => Door3ProgressState, bonusLitres?: number, narration?: string) => void;
+  onStartFreshCompostCycle: () => void;
   onSwitchToGarden: () => void;
 }
 
@@ -48,8 +52,12 @@ export const CompostStationModal: React.FC<CompostStationModalProps> = ({
   gradeTier,
   progress,
   litresSaved,
+  compostYieldsSinceRefresh,
+  compostYieldCycleLimit,
+  compostCycleCount,
   onClose,
   onUpdateProgress,
+  onStartFreshCompostCycle,
   onSwitchToGarden,
 }) => {
   const [activeTab, setActiveTab] = useState<WorkstationTab>(1);
@@ -94,6 +102,15 @@ export const CompostStationModal: React.FC<CompostStationModalProps> = ({
   const ws3Done = progress.mulchStep >= 4;
   const completedCount = countDoor3CompletedWorkstations(progress);
   const gradeTips = DOOR3_GRADE_TIPS[gradeTier];
+  const safeLimit = Math.max(1, compostYieldCycleLimit);
+  const yieldsRemaining = Math.max(0, safeLimit - compostYieldsSinceRefresh);
+  const compostNeedsRefresh = compostYieldsSinceRefresh >= safeLimit;
+
+  const handleRestartCompostBatch = () => {
+    setGatheredIds([]);
+    setLastSortFeedback(null);
+    onStartFreshCompostCycle();
+  };
 
   const handleSelectBottle = (bottleId: DripBottleType) => {
     setHoleCount(0);
@@ -571,6 +588,45 @@ export const CompostStationModal: React.FC<CompostStationModalProps> = ({
           {/* WORKSTATION 2 — BUCKET / CRATE / PALLET COMPOSTER */}
           {activeTab === 2 && (
             <div className="space-y-4">
+              {/* Compost Yield Refresh Cycle Card */}
+              <div
+                className={`rounded-xl border p-3.5 flex flex-wrap items-center justify-between gap-3 ${
+                  compostNeedsRefresh
+                    ? 'bg-amber-950/55 border-amber-400/60 text-amber-100'
+                    : 'bg-emerald-950/35 border-emerald-500/35 text-emerald-100'
+                }`}
+              >
+                <div className="space-y-0.5 text-xs">
+                  <div className="font-bold flex items-center gap-1.5">
+                    <Recycle className="w-4 h-4 text-amber-300 shrink-0" />
+                    <span>
+                      {compostNeedsRefresh
+                        ? `Compost Refresh Required (${safeLimit} Yields Harvested)`
+                        : `Rack Compost Vitality: ${yieldsRemaining}/${safeLimit} yields left`}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300">
+                    {compostNeedsRefresh
+                      ? 'Your garden beds have used up their compost nutrients. Build & mist a fresh batch below to unlock new yields!'
+                      : `Cycles delivered to Vertical Rack: ${compostCycleCount}. Redo compost every ${safeLimit} yields to keep soil rich.`}
+                  </p>
+                </div>
+
+                {ws2Done && (
+                  <button
+                    type="button"
+                    onClick={handleRestartCompostBatch}
+                    className={`px-3 py-2 rounded-lg text-xs font-bold cursor-pointer shrink-0 transition-colors ${
+                      compostNeedsRefresh
+                        ? 'bg-amber-500 hover:bg-amber-400 text-slate-950'
+                        : 'bg-slate-800 hover:bg-slate-700 text-amber-200 border border-amber-500/40'
+                    }`}
+                  >
+                    Bring Fresh Compost Batch In
+                  </button>
+                )}
+              </div>
+
               {/* Step 1: Container Selection */}
               <div className="rounded-xl bg-slate-900 border border-slate-800 p-3.5 space-y-2.5">
                 <div className="flex items-center justify-between">
@@ -823,14 +879,24 @@ export const CompostStationModal: React.FC<CompostStationModalProps> = ({
                   </div>
 
                   {ws2Done && (
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab(3)}
-                      className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <span>Continue to Workstation 3: Cardboard Mulch Shield</span>
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={onSwitchToGarden}
+                        className="w-full py-2.5 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Sprout className="w-4 h-4" />
+                        <span>Take Compost to Rack</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab(3)}
+                        className="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <span>Workstation 3: Mulch Shield</span>
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>

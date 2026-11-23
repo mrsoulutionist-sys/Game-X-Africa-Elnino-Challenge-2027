@@ -124,6 +124,18 @@
           "description": "Optional teacher name entered by the learner.",
           "maxLength": 60
         },
+        "compostYieldsSinceRefresh": {
+          "type": "integer",
+          "description": "Count of crop harvests since the student last refreshed Door 3 compost."
+        },
+        "compostCycleCount": {
+          "type": "integer",
+          "description": "Total completed compost refresh cycles."
+        },
+        "bestCompetitionMs": {
+          "type": "integer",
+          "description": "Fastest speed-run elapsed milliseconds recorded when Admin competition timer is enabled."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",
@@ -332,6 +344,96 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["topupId", "userId", "amountZar", "provider", "status", "createdAt"]
+    },
+    "AdminMeta": {
+      "title": "AdminMeta",
+      "description": "Singleton bootstrap status indicating whether the primary Admin account has been claimed.",
+      "type": "object",
+      "properties": {
+        "docId": { "type": "string", "enum": ["status"] },
+        "claimed": { "type": "boolean" },
+        "primaryAdminName": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "claimedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["docId", "claimed", "primaryAdminName", "claimedAt"]
+    },
+    "AdminAccount": {
+      "title": "AdminAccount",
+      "description": "Admin profile keyed by deterministic SHA-256 digest of normalized adminName and passcode.",
+      "type": "object",
+      "properties": {
+        "adminKey": { "type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[a-f0-9]{64}$" },
+        "adminName": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "role": { "type": "string", "enum": ["admin"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["adminKey", "adminName", "role", "createdAt", "updatedAt"]
+    },
+    "AdminWriteToken": {
+      "title": "AdminWriteToken",
+      "description": "Write-only atomic Admin action proof token linking an authenticated adminKey to an Admin mutation.",
+      "type": "object",
+      "properties": {
+        "tokenId": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "adminKey": { "type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[a-f0-9]{64}$" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["tokenId", "adminKey", "createdAt"]
+    },
+    "SystemConfig": {
+      "title": "SystemConfig",
+      "description": "Admin-controlled global challenge settings including Competition Speed Timer toggle, compost refresh cycle limit, and intermittent stage-targeted banners.",
+      "type": "object",
+      "properties": {
+        "configId": { "type": "string", "enum": ["global"] },
+        "competitionTimerEnabled": { "type": "boolean" },
+        "compostYieldCycleLimit": { "type": "integer" },
+        "challengeBannerText": { "type": "string", "maxLength": 180 },
+        "banners": { "type": "array", "description": "Up to 12 stage-targeted intermittent banners (scroll or flash)." },
+        "actionTokenId": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "updatedByAdminName": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["configId", "competitionTimerEnabled", "compostYieldCycleLimit", "challengeBannerText", "actionTokenId", "updatedByAdminName", "updatedAt"]
+    },
+    "AdminDocument": {
+      "title": "AdminDocument",
+      "description": "Document or guide uploaded by an Admin for students and parents to view and download.",
+      "type": "object",
+      "properties": {
+        "docId": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "title": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "description": { "type": "string", "maxLength": 300 },
+        "category": { "type": "string", "enum": ["guide", "rules", "curriculum", "notice"] },
+        "fileName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "mimeType": { "type": "string", "minLength": 3, "maxLength": 80 },
+        "sizeBytes": { "type": "integer" },
+        "contentBase64": { "type": "string", "minLength": 1, "maxLength": 620000 },
+        "active": { "type": "boolean" },
+        "actionTokenId": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "uploadedByAdminName": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["docId", "title", "description", "category", "fileName", "mimeType", "sizeBytes", "contentBase64", "active", "actionTokenId", "uploadedByAdminName", "createdAt", "updatedAt"]
+    },
+    "CompetitionRun": {
+      "title": "CompetitionRun",
+      "description": "Speed-run completion record logged when Admin enables Competition Timer mode.",
+      "type": "object",
+      "properties": {
+        "runId": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "farmerKey": { "type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[a-f0-9]{64}$" },
+        "farmerName": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "schoolId": { "type": "string", "maxLength": 100 },
+        "grade": { "type": "string", "maxLength": 40 },
+        "elapsedMs": { "type": "integer" },
+        "compostCycleCount": { "type": "integer" },
+        "milestoneLabel": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["runId", "farmerKey", "farmerName", "schoolId", "grade", "elapsedMs", "compostCycleCount", "milestoneLabel", "createdAt"]
     }
   },
   "firestore": {
@@ -339,7 +441,7 @@
       "schema": {
         "$ref": "#/entities/FarmerProfile"
       },
-      "description": "Stores each farmer's persistent kitchen fabrication progress, vertical rack size, timestamped tier crops, and El Nino drought resilience metrics."
+      "description": "Stores each farmer's persistent kitchen fabrication progress, vertical rack size, timestamped tier crops, compost yield cycle counters, and El Nino drought resilience metrics."
     },
     "/parents/{parentKey}": {
       "schema": {
@@ -382,6 +484,42 @@
         "$ref": "#/entities/WalletTopup"
       },
       "description": "Minimum R250 Karri wallet credit top-up logs."
+    },
+    "/admin_meta/{docId}": {
+      "schema": {
+        "$ref": "#/entities/AdminMeta"
+      },
+      "description": "Singleton bootstrap lock indicating whether the primary Admin account is claimed."
+    },
+    "/admins/{adminKey}": {
+      "schema": {
+        "$ref": "#/entities/AdminAccount"
+      },
+      "description": "Admin records keyed by SHA-256 digest of admin name and passcode."
+    },
+    "/admin_write_tokens/{tokenId}": {
+      "schema": {
+        "$ref": "#/entities/AdminWriteToken"
+      },
+      "description": "Write-only atomic Admin action tokens verified via getAfter() during admin mutations."
+    },
+    "/system_config/{configId}": {
+      "schema": {
+        "$ref": "#/entities/SystemConfig"
+      },
+      "description": "Global Admin settings for Competition Timer toggle and compost redo yield limit."
+    },
+    "/admin_documents/{docId}": {
+      "schema": {
+        "$ref": "#/entities/AdminDocument"
+      },
+      "description": "Admin-uploaded guides, rules, and challenge documents."
+    },
+    "/competition_runs/{runId}": {
+      "schema": {
+        "$ref": "#/entities/CompetitionRun"
+      },
+      "description": "Fastest completion leaderboard runs logged during active Competition Timer mode."
     }
   }
 }

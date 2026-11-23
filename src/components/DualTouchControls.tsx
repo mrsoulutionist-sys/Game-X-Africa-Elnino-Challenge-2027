@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Hammer, Eye, Crosshair } from 'lucide-react';
+import { Hammer, Eye, Crosshair, Footprints } from 'lucide-react';
 
 interface DualTouchControlsProps {
   onMoveInput: (x: number, y: number) => void;
@@ -12,6 +12,7 @@ interface DualTouchControlsProps {
   inRange: boolean;
   isBusy: boolean;
   isComplete: boolean;
+  isDoorTarget?: boolean;
   manualAimMode: boolean;
   reticleAligned: boolean;
   subProgress: number;
@@ -32,6 +33,7 @@ export const DualTouchControls: React.FC<DualTouchControlsProps> = ({
   inRange,
   isBusy,
   isComplete,
+  isDoorTarget = false,
   manualAimMode,
   reticleAligned,
   subProgress,
@@ -255,13 +257,18 @@ export const DualTouchControls: React.FC<DualTouchControlsProps> = ({
     onMoveInput(kx / MAX_STICK_RADIUS, -ky / MAX_STICK_RADIUS);
   };
 
-  const canActivate = !isBusy && (isComplete || (inRange && (!manualAimMode || reticleAligned)));
+  const canActivate =
+    !isDoorTarget &&
+    !isBusy &&
+    (isComplete || (inRange && (!manualAimMode || reticleAligned)));
 
   let buttonText = targetLabel;
-  if (isBusy) {
+  if (isDoorTarget) {
+    buttonText = targetLabel;
+  } else if (isBusy) {
     buttonText = 'Working...';
   } else if (isComplete) {
-    buttonText = inRange ? actionLabel : 'Toggle Cutaway';
+    buttonText = 'Toggle Cutaway';
   } else if (inRange) {
     if (manualAimMode) {
       buttonText = reticleAligned
@@ -330,25 +337,29 @@ export const DualTouchControls: React.FC<DualTouchControlsProps> = ({
             onActionEnd();
           }}
           onMouseLeave={() => onActionEnd()}
-          disabled={!canActivate && !(manualAimMode && inRange)}
-          className={`relative overflow-hidden flex items-center gap-2.5 px-5 py-3.5 rounded-xl font-semibold text-sm shadow-lg transition-colors cursor-pointer touch-none ${
-            isBusy
-              ? 'bg-amber-600/90 text-white border border-amber-400/60'
-              : canActivate
-                ? 'bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white border border-emerald-400/70'
-                : manualAimMode && inRange
-                  ? 'bg-amber-950/90 text-amber-200 border border-amber-500/70 cursor-default'
-                  : 'bg-slate-950/80 text-slate-400 border border-slate-700/70 cursor-not-allowed'
+          disabled={isDoorTarget || (!canActivate && !(manualAimMode && inRange))}
+          className={`relative overflow-hidden flex items-center gap-2.5 px-5 py-3.5 rounded-xl font-semibold text-sm shadow-lg transition-colors touch-none ${
+            isDoorTarget
+              ? 'bg-emerald-950/90 text-emerald-200 border border-emerald-500/60 cursor-default'
+              : isBusy
+                ? 'bg-amber-600/90 text-white border border-amber-400/60 cursor-pointer'
+                : canActivate
+                  ? 'bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white border border-emerald-400/70 cursor-pointer'
+                  : manualAimMode && inRange
+                    ? 'bg-amber-950/90 text-amber-200 border border-amber-500/70 cursor-default'
+                    : 'bg-slate-950/80 text-slate-400 border border-slate-700/70 cursor-not-allowed'
           }`}
         >
-          {manualAimMode && subProgress > 0 && (
+          {manualAimMode && subProgress > 0 && !isDoorTarget && (
             <span
               style={{ width: `${Math.round(subProgress * 100)}%` }}
               className="absolute inset-y-0 left-0 bg-emerald-400/30 pointer-events-none"
             />
           )}
           <span className="relative flex items-center gap-2">
-            {isComplete ? (
+            {isDoorTarget ? (
+              <Footprints className="w-4 h-4" />
+            ) : isComplete ? (
               <Eye className="w-4 h-4" />
             ) : manualAimMode && !reticleAligned && inRange ? (
               <Crosshair className="w-4 h-4" />

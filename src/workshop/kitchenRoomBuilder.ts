@@ -24,8 +24,13 @@ export interface KitchenRoomHandle {
   group: THREE.Group;
   colliders: AABB[];
   targetZones: Record<TargetZoneId, ZoneAnchor>;
+  doorAnchors: {
+    garden: THREE.Vector3;
+    compost: THREE.Vector3;
+  };
   interactableObjects: THREE.Object3D[];
   sinkWaterStream: THREE.Mesh;
+  setDoorOpenFactors: (gardenOpen: number, compostOpen: number) => void;
   setActiveStepVisuals: (step: BuildStepId, isFillingSink: boolean) => void;
   update: (time: number, isFillingSink: boolean) => void;
   dispose: () => void;
@@ -298,49 +303,103 @@ export function buildKitchenWorkshopRoom(
   // Baseboards on South & open walls
   addBox(group, 9.1, 0.1, 0.03, 0, 0.05, 4.24, mats.cabinetDarkMat, false, true);
 
-  // Garden Exit Door on South Wall (x = 0, z = 4.23)
-  const gardenDoorGroup = new THREE.Group();
-  gardenDoorGroup.position.set(0, 0, 4.23);
-  addBox(gardenDoorGroup, 1.36, 2.32, 0.12, 0, 1.16, 0, mats.cabinetDarkMat, false, true);
-  addBox(gardenDoorGroup, 1.12, 2.18, 0.06, 0, 1.12, -0.02, mats.cabinetMat, false, true);
-  // Frosted sunlit garden glass pane inside door
-  const gardenDoorGlassMat = new THREE.MeshBasicMaterial({ color: 0x86efac, transparent: true, opacity: 0.45 });
-  disposableExtras.push(gardenDoorGlassMat);
-  const doorGlass = new THREE.Mesh(new THREE.PlaneGeometry(0.76, 1.12), gardenDoorGlassMat);
-  doorGlass.position.set(0, 1.48, -0.055);
-  doorGlass.rotation.y = Math.PI;
-  gardenDoorGroup.add(doorGlass);
-  // Brass handle
-  addBox(gardenDoorGroup, 0.14, 0.03, 0.07, -0.4, 1.05, -0.08, mats.brassMat, false, false);
-  // Overhead "OUTDOOR GARDEN YARD" plaque
-  const exitCanvas = document.createElement('canvas');
-  exitCanvas.width = 512;
-  exitCanvas.height = 140;
-  const ectx = exitCanvas.getContext('2d')!;
-  ectx.fillStyle = '#0f172a';
-  ectx.fillRect(0, 0, 512, 140);
-  ectx.strokeStyle = '#34d399';
-  ectx.lineWidth = 6;
-  ectx.strokeRect(8, 8, 496, 124);
-  ectx.fillStyle = '#34d399';
-  ectx.font = 'bold 22px ui-monospace, monospace';
-  ectx.textAlign = 'center';
-  ectx.fillText('EXIT TO VERTICAL RACKS', 256, 48);
-  ectx.fillStyle = '#ffffff';
-  ectx.font = 'bold 40px system-ui, -apple-system, sans-serif';
-  ectx.fillText('GARDEN YARD →', 256, 102);
-  const exitTex = new THREE.CanvasTexture(exitCanvas);
-  exitTex.colorSpace = THREE.SRGBColorSpace;
-  const exitMat = new THREE.MeshBasicMaterial({ map: exitTex });
-  disposableExtras.push(exitTex, exitMat);
-  const exitSign = new THREE.Mesh(new THREE.PlaneGeometry(1.28, 0.34), exitMat);
-  exitSign.position.set(0, 2.58, -0.04);
-  exitSign.rotation.y = Math.PI;
-  gardenDoorGroup.add(exitSign);
+  // Helper to build a South-wall walk-through door with swinging hinge pivot & floor portal glow
+  const buildSouthWalkDoor = (
+    xPos: number,
+    topLabel: string,
+    mainLabel: string,
+    accentHex: string,
+    glassColorHex: number
+  ): THREE.Group => {
+    const doorGroup = new THREE.Group();
+    doorGroup.position.set(xPos, 0, 4.23);
 
-  tagTargetZone(gardenDoorGroup, 'garden_exit');
-  interactableObjects.push(gardenDoorGroup);
-  group.add(gardenDoorGroup);
+    // Frame posts & header
+    addBox(doorGroup, 0.12, 2.32, 0.14, -0.62, 1.16, 0, mats.cabinetDarkMat, false, true);
+    addBox(doorGroup, 0.12, 2.32, 0.14, 0.62, 1.16, 0, mats.cabinetDarkMat, false, true);
+    addBox(doorGroup, 1.36, 0.12, 0.14, 0, 2.26, 0, mats.cabinetDarkMat, false, true);
+
+    // Swinging leaf pivoted on left hinge (x = -0.56)
+    const leafPivot = new THREE.Group();
+    leafPivot.position.set(-0.56, 0, -0.02);
+    addBox(leafPivot, 1.12, 2.18, 0.06, 0.56, 1.12, 0, mats.cabinetMat, false, true);
+
+    const doorGlassMat = new THREE.MeshBasicMaterial({
+      color: glassColorHex,
+      transparent: true,
+      opacity: 0.48,
+    });
+    disposableExtras.push(doorGlassMat);
+    const doorGlass = new THREE.Mesh(new THREE.PlaneGeometry(0.76, 1.12), doorGlassMat);
+    doorGlass.position.set(0.56, 1.48, -0.035);
+    doorGlass.rotation.y = Math.PI;
+    leafPivot.add(doorGlass);
+
+    addBox(leafPivot, 0.14, 0.03, 0.07, 0.16, 1.05, -0.06, mats.brassMat, false, false);
+    doorGroup.add(leafPivot);
+
+    // Glowing floor walk-through threshold strip
+    const matMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.16, 0.56),
+      new THREE.MeshBasicMaterial({
+        color: glassColorHex,
+        transparent: true,
+        opacity: 0.35,
+        side: THREE.DoubleSide,
+      })
+    );
+    matMesh.rotation.x = -Math.PI * 0.5;
+    matMesh.position.set(0, 0.015, -0.36);
+    doorGroup.add(matMesh);
+    disposableExtras.push(matMesh.material as THREE.Material);
+
+    // Overhead illuminated plaque
+    const exitCanvas = document.createElement('canvas');
+    exitCanvas.width = 512;
+    exitCanvas.height = 140;
+    const ectx = exitCanvas.getContext('2d')!;
+    ectx.fillStyle = '#0f172a';
+    ectx.fillRect(0, 0, 512, 140);
+    ectx.strokeStyle = accentHex;
+    ectx.lineWidth = 6;
+    ectx.strokeRect(8, 8, 496, 124);
+    ectx.fillStyle = accentHex;
+    ectx.font = 'bold 22px ui-monospace, monospace';
+    ectx.textAlign = 'center';
+    ectx.fillText(topLabel, 256, 48);
+    ectx.fillStyle = '#ffffff';
+    ectx.font = 'bold 38px system-ui, -apple-system, sans-serif';
+    ectx.fillText(mainLabel, 256, 102);
+    const exitTex = new THREE.CanvasTexture(exitCanvas);
+    exitTex.colorSpace = THREE.SRGBColorSpace;
+    const exitMat = new THREE.MeshBasicMaterial({ map: exitTex });
+    disposableExtras.push(exitTex, exitMat);
+    const exitSign = new THREE.Mesh(new THREE.PlaneGeometry(1.28, 0.34), exitMat);
+    exitSign.position.set(0, 2.58, -0.04);
+    exitSign.rotation.y = Math.PI;
+    doorGroup.add(exitSign);
+
+    group.add(doorGroup);
+    return leafPivot;
+  };
+
+  // South-West Door -> Door 2: Garden Yard (x = -1.45, z = 4.23)
+  const gardenDoorPivot = buildSouthWalkDoor(
+    -1.45,
+    'WALK THROUGH · DOOR 2',
+    'GARDEN YARD →',
+    '#34d399',
+    0x86efac
+  );
+
+  // South-East Door -> Door 3: Compost Station (x = +1.45, z = 4.23)
+  const compostDoorPivot = buildSouthWalkDoor(
+    1.45,
+    'WALK THROUGH · DOOR 3',
+    'COMPOST LAB →',
+    '#fbbf24',
+    0xfcd34d
+  );
 
   // 2. Daylight Kitchen Window behind Sink (x = -1.9, z = -4.38)
   addBox(group, 1.65, 1.32, 0.06, -1.9, 1.95, -4.38, mats.cabinetDarkMat, false, false);
@@ -561,7 +620,7 @@ export function buildKitchenWorkshopRoom(
   const drillBeacon = createBeacon(1.2, 0.905, -3.86);
   const wickBeacon = createBeacon(3.92, 0.905, 0.15);
   const sinkBeacon = createBeacon(-1.9, 0.905, -3.65);
-  const gardenExitBeacon = createBeacon(0, 0.02, 3.75);
+  const gardenExitBeacon = createBeacon(-1.45, 0.02, 3.75);
 
   [sawBeacon, benchBeacon, drillBeacon, wickBeacon, sinkBeacon, gardenExitBeacon].forEach((b) => {
     group.add(b.group);
@@ -616,8 +675,8 @@ export function buildKitchenWorkshopRoom(
     },
     garden_exit: {
       id: 'garden_exit',
-      label: 'Garden Exit Door',
-      position: new THREE.Vector3(0, 0.1, 3.85),
+      label: 'Walk Through Door 2: Garden',
+      position: new THREE.Vector3(-1.45, 0.1, 3.85),
       interactRadius: 2.15,
       beaconGroup: gardenExitBeacon.group,
       beaconRing: gardenExitBeacon.ring,
@@ -691,14 +750,24 @@ export function buildKitchenWorkshopRoom(
     });
   };
 
+  const setDoorOpenFactors = (gardenOpen: number, compostOpen: number) => {
+    gardenDoorPivot.rotation.y = THREE.MathUtils.clamp(gardenOpen, 0, 1) * 1.25;
+    compostDoorPivot.rotation.y = THREE.MathUtils.clamp(compostOpen, 0, 1) * 1.25;
+  };
+
   setActiveStepVisuals('GET_SAW', false);
 
   return {
     group,
     colliders,
     targetZones,
+    doorAnchors: {
+      garden: new THREE.Vector3(-1.45, 0, 4.15),
+      compost: new THREE.Vector3(1.45, 0, 4.15),
+    },
     interactableObjects,
     sinkWaterStream,
+    setDoorOpenFactors,
     setActiveStepVisuals,
     update,
     dispose,

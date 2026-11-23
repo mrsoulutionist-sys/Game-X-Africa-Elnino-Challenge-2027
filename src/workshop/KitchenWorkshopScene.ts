@@ -52,14 +52,14 @@ const ROOM_BOUNDS = {
   minX: -4.2,
   maxX: 4.2,
   minZ: -4.05,
-  maxZ: 3.9,
+  maxZ: 4.14,
 };
 
 const GARDEN_BOUNDS = {
   minX: -4.45,
   maxX: 4.45,
   minZ: -3.95,
-  maxZ: 4.05,
+  maxZ: 4.22,
 };
 
 const PLAYER_EYE_Y = 1.62;
@@ -71,6 +71,7 @@ export interface SceneCallbacks {
   onKitchenStepPersisted: (step: BuildStepId) => void;
   onZoneChanged: (zone: ActiveZone) => void;
   onOpenRackManager: () => void;
+  onOpenElNinoHub: () => void;
   onOpenCompostStation: (workstation?: 1 | 2 | 3) => void;
   onDoor3Update: (
     updater: (prev: Door3ProgressState) => Door3ProgressState,
@@ -117,6 +118,7 @@ export class KitchenWorkshopScene {
   private isFillingSink = false;
   private cutawayMode = false;
   private busyTimeoutId: number | null = null;
+  private doorCooldownUntilMs = 0;
   private gardenTarget: GardenTargetKind = null;
   private compostTarget: CompostTargetKind = null;
   private door3Progress: Door3ProgressState = { ...DEFAULT_DOOR3_PROGRESS };
@@ -467,6 +469,7 @@ export class KitchenWorkshopScene {
 
   public switchZone(zone: ActiveZone, persist = true): void {
     this.activeZone = zone;
+    this.doorCooldownUntilMs = performance.now() + 1350;
     const isKitchen = zone === 'kitchen';
     const isGarden = zone === 'garden';
     const isCompost = zone === 'compost';
@@ -475,16 +478,19 @@ export class KitchenWorkshopScene {
     this.rig.group.visible = isKitchen;
     this.garden.group.visible = isGarden;
     this.compost.group.visible = isCompost;
+    this.room.setDoorOpenFactors(0, 0);
+    this.garden.setDoorOpenFactors(0, 0);
+    this.compost.setDoorOpenFactors(0, 0);
 
     if (isKitchen) {
       this.scene.background = new THREE.Color(0x212830);
       this.scene.fog = null;
-      this.camera.position.set(0, PLAYER_EYE_Y, 2.35);
+      this.camera.position.set(0, PLAYER_EYE_Y, 2.2);
       this.yaw = 0;
       this.pitch = -0.15;
     } else {
       this.applyGardenAtmosphere();
-      this.camera.position.set(0, PLAYER_EYE_Y, 2.3);
+      this.camera.position.set(0, PLAYER_EYE_Y, 2.2);
       this.yaw = 0;
       this.pitch = -0.12;
     }
@@ -552,10 +558,10 @@ export class KitchenWorkshopScene {
     workshopVoiceover.unlockAndSpeakPending();
 
     if (this.activeZone === 'garden') {
-      if (this.gardenTarget === 'kitchen_door') {
-        this.switchZone('kitchen', true);
-      } else if (this.gardenTarget === 'compost_door') {
-        this.switchZone('compost', true);
+      if (this.gardenTarget === 'kitchen_door' || this.gardenTarget === 'compost_door') {
+        return;
+      } else if (this.gardenTarget === 'jojo' || this.gardenTarget === 'weather') {
+        this.callbacks.onOpenElNinoHub();
       } else if (this.gardenTarget !== null) {
         this.callbacks.onOpenRackManager();
       }
@@ -564,6 +570,9 @@ export class KitchenWorkshopScene {
 
     if (this.activeZone === 'compost') {
       if (this.isBusy) return;
+      if (this.compostTarget === 'garden_door' || this.compostTarget === 'kitchen_door') {
+        return;
+      }
       const rect = this.renderer.domElement.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) {
         this.ndcPointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
@@ -572,10 +581,6 @@ export class KitchenWorkshopScene {
         const hits = this.raycaster.intersectObjects(this.compost.interactableObjects, true);
         if (hits.length > 0) {
           const ud = hits[0].object.userData;
-          if (ud.compostAction === 'garden_door' && this.compostTarget === 'garden_door') {
-            this.switchZone('garden', true);
-            return;
-          }
           if (ud.compostAction === 'select_bottle' && this.compostTarget === 'drip_bench') {
             this.selectDoor3Bottle(ud.bottleId as DripBottleType);
             return;
@@ -600,9 +605,7 @@ export class KitchenWorkshopScene {
           }
         }
       }
-      if (this.compostTarget === 'garden_door') {
-        this.switchZone('garden', true);
-      } else if (this.compostTarget !== null && !this.isManualAimStep()) {
+      if (this.compostTarget !== null && !this.isManualAimStep()) {
         this.triggerCurrentAction();
       }
       return;
@@ -622,16 +625,7 @@ export class KitchenWorkshopScene {
 
     const hitZone = hits[0].object.userData.targetZone as string | undefined;
     if (hitZone === 'garden_exit') {
-      const exitAnchor = this.room.targetZones.garden_exit;
-      if (
-        Math.hypot(
-          this.camera.position.x - exitAnchor.position.x,
-          this.camera.position.z - exitAnchor.position.z
-        ) <= exitAnchor.interactRadius
-      ) {
-        this.switchZone('garden', true);
-        return;
-      }
+      return;
     }
 
     const activeZone = BUILD_STEPS[this.stepId].targetZone;
@@ -690,10 +684,10 @@ export class KitchenWorkshopScene {
     workshopVoiceover.unlockAndSpeakPending();
 
     if (this.activeZone === 'garden') {
-      if (this.gardenTarget === 'kitchen_door') {
-        this.switchZone('kitchen', true);
-      } else if (this.gardenTarget === 'compost_door') {
-        this.switchZone('compost', true);
+      if (this.gardenTarget === 'kitchen_door' || this.gardenTarget === 'compost_door') {
+        return;
+      } else if (this.gardenTarget === 'jojo' || this.gardenTarget === 'weather') {
+        this.callbacks.onOpenElNinoHub();
       } else {
         this.callbacks.onOpenRackManager();
       }
@@ -701,8 +695,7 @@ export class KitchenWorkshopScene {
     }
 
     if (this.activeZone === 'compost') {
-      if (this.compostTarget === 'garden_door') {
-        this.switchZone('garden', true);
+      if (this.compostTarget === 'garden_door' || this.compostTarget === 'kitchen_door') {
         return;
       }
       if (this.compostTarget === 'drip_bench') {
@@ -811,11 +804,7 @@ export class KitchenWorkshopScene {
     if (this.isManualAimStep()) return;
 
     if (this.stepId === 'COMPLETE') {
-      if (this.checkInRange()) {
-        this.switchZone('garden', true);
-      } else {
-        this.toggleCutawayMode();
-      }
+      this.toggleCutawayMode();
       return;
     }
 
@@ -993,9 +982,15 @@ export class KitchenWorkshopScene {
       this.camera.position.x - this.compost.anchors.garden_door.x,
       this.camera.position.z - this.compost.anchors.garden_door.z
     );
+    const distKitchenDoor = Math.hypot(
+      this.camera.position.x - this.compost.anchors.kitchen_door.x,
+      this.camera.position.z - this.compost.anchors.kitchen_door.z
+    );
 
     if (distGardenDoor <= 2.1) {
       this.compostTarget = 'garden_door';
+    } else if (distKitchenDoor <= 2.1) {
+      this.compostTarget = 'kitchen_door';
     } else if (distDrip <= 2.35) {
       this.compostTarget = 'drip_bench';
     } else if (distCompost <= 2.45) {
@@ -1093,7 +1088,8 @@ export class KitchenWorkshopScene {
   }
 
   private getCompostActionLabel(): string {
-    if (this.compostTarget === 'garden_door') return 'Back to Door 2 Garden';
+    if (this.compostTarget === 'garden_door') return 'Walk Through → Door 2 Garden';
+    if (this.compostTarget === 'kitchen_door') return 'Walk Through → Door 1 Kitchen';
     if (this.compostTarget === 'drip_bench') {
       const s = this.door3Progress.dripStep;
       if (s === 0) return 'Pick 2L Bottle';
@@ -1155,9 +1151,9 @@ export class KitchenWorkshopScene {
     const targetLabel =
       this.activeZone === 'garden'
         ? this.gardenTarget === 'compost_door'
-          ? 'Enter Door 3: Compost'
+          ? 'Walk Through → Door 3 Compost'
           : this.gardenTarget === 'kitchen_door'
-            ? 'Enter Kitchen Lab'
+            ? 'Walk Through → Door 1 Kitchen'
             : this.gardenTarget === 'jojo'
               ? 'JoJo Rain Tank'
               : this.gardenTarget === 'weather'
@@ -1186,7 +1182,7 @@ export class KitchenWorkshopScene {
     });
   }
 
-  private updateMovement(dt: number): void {
+  private updateMovement(dt: number): boolean {
     let kbX = 0;
     let kbY = 0;
     if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) kbY += 1;
@@ -1202,7 +1198,7 @@ export class KitchenWorkshopScene {
       iy /= mag;
     }
 
-    if (mag < 0.01) return;
+    if (mag < 0.01) return false;
 
     const bounds = this.activeZone === 'kitchen' ? ROOM_BOUNDS : GARDEN_BOUNDS;
     const colliders =
@@ -1236,6 +1232,74 @@ export class KitchenWorkshopScene {
     );
     if (!this.collidesAny(this.camera.position.x, nextZ, colliders)) {
       this.camera.position.z = nextZ;
+    }
+    return true;
+  }
+
+  private updateDoorWalkthrough(isMoving: boolean): void {
+    const px = this.camera.position.x;
+    const pz = this.camera.position.z;
+    const canWalkThrough = !this.isBusy && isMoving && performance.now() >= this.doorCooldownUntilMs;
+
+    const isAtThreshold = (doorPos: THREE.Vector3): { dist: number; entered: boolean } => {
+      const dist = Math.hypot(px - doorPos.x, pz - doorPos.z);
+      const entered =
+        dist <= 1.12 || (pz >= 3.68 && Math.abs(px - doorPos.x) <= 0.78);
+      return { dist, entered };
+    };
+
+    if (this.activeZone === 'kitchen') {
+      const g = isAtThreshold(this.room.doorAnchors.garden);
+      const c = isAtThreshold(this.room.doorAnchors.compost);
+      this.room.setDoorOpenFactors(
+        THREE.MathUtils.clamp((2.3 - g.dist) / 1.15, 0, 1),
+        THREE.MathUtils.clamp((2.3 - c.dist) / 1.15, 0, 1)
+      );
+      if (canWalkThrough) {
+        if (g.entered) {
+          workshopAudio.playPickup();
+          this.switchZone('garden', true);
+        } else if (c.entered) {
+          workshopAudio.playPickup();
+          this.switchZone('compost', true);
+        }
+      }
+      return;
+    }
+
+    if (this.activeZone === 'garden') {
+      const k = isAtThreshold(this.garden.kitchenDoorAnchor);
+      const c = isAtThreshold(this.garden.compostDoorAnchor);
+      this.garden.setDoorOpenFactors(
+        THREE.MathUtils.clamp((2.3 - k.dist) / 1.15, 0, 1),
+        THREE.MathUtils.clamp((2.3 - c.dist) / 1.15, 0, 1)
+      );
+      if (canWalkThrough) {
+        if (k.entered) {
+          workshopAudio.playPickup();
+          this.switchZone('kitchen', true);
+        } else if (c.entered) {
+          workshopAudio.playPickup();
+          this.switchZone('compost', true);
+        }
+      }
+      return;
+    }
+
+    const g = isAtThreshold(this.compost.anchors.garden_door);
+    const k = isAtThreshold(this.compost.anchors.kitchen_door);
+    this.compost.setDoorOpenFactors(
+      THREE.MathUtils.clamp((2.3 - g.dist) / 1.15, 0, 1),
+      THREE.MathUtils.clamp((2.3 - k.dist) / 1.15, 0, 1)
+    );
+    if (canWalkThrough) {
+      if (g.entered) {
+        workshopAudio.playPickup();
+        this.switchZone('garden', true);
+      } else if (k.entered) {
+        workshopAudio.playPickup();
+        this.switchZone('kitchen', true);
+      }
     }
   }
 
@@ -1312,7 +1376,8 @@ export class KitchenWorkshopScene {
     this.lastTimeMs = now;
     this.worldTime += dt;
 
-    this.updateMovement(dt);
+    const isMoving = this.updateMovement(dt);
+    this.updateDoorWalkthrough(isMoving);
     if (this.activeZone === 'kitchen') {
       this.updateManualAimAndTool(dt);
       this.room.update(this.worldTime, this.isFillingSink);

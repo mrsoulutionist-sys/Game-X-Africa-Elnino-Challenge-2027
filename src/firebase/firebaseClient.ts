@@ -89,6 +89,9 @@ export interface FarmerProfile {
   litresSaved: number;
   foodServings: number;
   door3: Door3ProgressState;
+  compostYieldsSinceRefresh: number;
+  compostCycleCount: number;
+  bestCompetitionMs?: number | null;
   role?: 'student';
   schoolName?: string;
   schoolKey?: string;
@@ -198,6 +201,11 @@ export async function deriveFarmerKey(farmerName: string, passcode: string): Pro
 export async function deriveParentKey(pseudonym: string, passcode: string): Promise<string> {
   const normalizedName = pseudonym.trim().toLowerCase();
   return sha256Material(`gamex-elnino-parent:${normalizedName}\0${passcode}`);
+}
+
+export async function deriveAdminKey(adminName: string, passcode: string): Promise<string> {
+  const normalizedName = adminName.trim().toLowerCase();
+  return sha256Material(`gamex-elnino-admin:${normalizedName}\0${passcode}`);
 }
 
 export function normalizeSchoolKey(schoolName: string): string {
@@ -507,6 +515,12 @@ export async function loginOrCreateFarmer(
       foodServings:
         typeof data.foodServings === 'number' ? Math.max(0, Math.round(data.foodServings)) : 0,
       door3: sanitizeDoor3(data),
+      compostYieldsSinceRefresh: clampInt(data.compostYieldsSinceRefresh, 0, 50, 0),
+      compostCycleCount: clampInt(data.compostCycleCount, 0, 10000, 0),
+      bestCompetitionMs:
+        typeof data.bestCompetitionMs === 'number' && data.bestCompetitionMs >= 0
+          ? Math.min(86400000, Math.round(data.bestCompetitionMs))
+          : null,
       role: 'student',
       ...(resolvedSchoolName ? { schoolName: resolvedSchoolName } : {}),
       ...(resolvedSchoolKey ? { schoolKey: resolvedSchoolKey } : {}),
@@ -543,6 +557,9 @@ export async function loginOrCreateFarmer(
     litresSaved: 0,
     foodServings: 0,
     door3: { ...DEFAULT_DOOR3_PROGRESS },
+    compostYieldsSinceRefresh: 0,
+    compostCycleCount: 0,
+    bestCompetitionMs: null,
     role: 'student',
     ...(cleanSchoolName ? { schoolName: cleanSchoolName, schoolKey } : {}),
     ...(cleanGrade ? { grade: cleanGrade } : {}),
@@ -725,6 +742,12 @@ export async function saveFarmerProgress(profile: FarmerProfile): Promise<void> 
       litresSaved: Math.max(0, Math.min(1000000, Math.round(profile.litresSaved * 10) / 10)),
       foodServings: Math.max(0, Math.min(1000000, Math.round(profile.foodServings))),
       ...serializeDoor3(profile.door3),
+      compostYieldsSinceRefresh: clampInt(profile.compostYieldsSinceRefresh, 0, 50, 0),
+      compostCycleCount: clampInt(profile.compostCycleCount, 0, 10000, 0),
+      bestCompetitionMs:
+        typeof profile.bestCompetitionMs === 'number' && profile.bestCompetitionMs >= 0
+          ? Math.min(86400000, Math.round(profile.bestCompetitionMs))
+          : null,
       updatedAt: serverTimestamp(),
     });
   } catch (err) {

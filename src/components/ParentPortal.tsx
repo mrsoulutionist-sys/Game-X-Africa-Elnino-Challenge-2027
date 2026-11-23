@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
+  FileText,
   GraduationCap,
   Lock,
   LogOut,
@@ -13,6 +14,10 @@ import {
   UserCheck,
   Wallet,
 } from 'lucide-react';
+import {
+  subscribeToAdminDocuments,
+  type AdminDocumentRecord,
+} from '../firebase/adminService';
 import { SUPPORTER_ROLES, type ParentProfile } from '../firebase/firebaseClient';
 import {
   compute14DayStudentScores,
@@ -27,6 +32,7 @@ import {
   type StoreOrder,
   type StudentGrow,
 } from '../firebase/storeService';
+import { AdminDocumentsModal } from './AdminDocumentsModal';
 import { GradeProduceStore } from './GradeProduceStore';
 import { computePetAlerts, loadParentAdoptedPets, type AdoptedPet } from './petData';
 import { PetSanctuary } from './PetSanctuary';
@@ -50,6 +56,8 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ profile, onLogout })
   const [studentGrows, setStudentGrows] = useState<StudentGrow[]>([]);
   const [harvestBatches, setHarvestBatches] = useState<HarvestBatch[]>([]);
   const [recentOrders, setRecentOrders] = useState<StoreOrder[]>([]);
+  const [adminDocs, setAdminDocs] = useState<AdminDocumentRecord[]>([]);
+  const [docsModalOpen, setDocsModalOpen] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const inlineStoreRef = useRef<HTMLDivElement | null>(null);
@@ -99,6 +107,9 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ profile, onLogout })
     const unsubOrders = subscribeToUserOrders(profile.parentKey, (rows) => {
       if (active) setRecentOrders(rows);
     });
+    const unsubAdminDocs = subscribeToAdminDocuments((rows) => {
+      if (active) setAdminDocs(rows);
+    });
 
     return () => {
       active = false;
@@ -107,6 +118,7 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ profile, onLogout })
       unsubGrows();
       unsubBatches();
       unsubOrders();
+      unsubAdminDocs();
     };
   }, [profile.parentKey]);
 
@@ -210,6 +222,17 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ profile, onLogout })
               <PawPrint className="h-4 w-4 text-[#007749]" />
               <span>My Sanctuary: {petCountLabel}</span>
             </button>
+
+            {adminDocs.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setDocsModalOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[#001489]/25 bg-white px-3 py-1.5 text-sm font-semibold text-[#001489] hover:bg-slate-50 cursor-pointer transition-colors"
+              >
+                <FileText className="h-4 w-4" />
+                <span>Docs ({adminDocs.length})</span>
+              </button>
+            )}
 
             <button
               type="button"
@@ -498,6 +521,12 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ profile, onLogout })
           />
         )}
       </main>
+
+      <AdminDocumentsModal
+        open={docsModalOpen}
+        documents={adminDocs}
+        onClose={() => setDocsModalOpen(false)}
+      />
     </div>
   );
 };

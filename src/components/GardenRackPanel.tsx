@@ -6,16 +6,15 @@ import {
   Hammer,
   CheckCircle2,
   Sparkles,
-  CloudRain,
-  Sun,
-  ShieldCheck,
   ChevronDown,
   ChevronUp,
   Clock,
+  Recycle,
+  Sun,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   EL_NINO_CROPS,
-  WEATHER_FORECASTS,
   computeTierLiveMetrics,
   getCropById,
   type CropId,
@@ -29,13 +28,14 @@ interface GardenRackPanelProps {
   tiers: TierSaveState[];
   hasReadyPipe: boolean;
   totalHarvestedCount: number;
-  jojoInstalled: boolean;
   jojoLitres: number;
-  jojoCapacity: number;
   shadeClothInstalled: boolean;
   weatherMode: WeatherMode;
   litresSaved: number;
   foodServings: number;
+  compostYieldsSinceRefresh: number;
+  compostYieldCycleLimit: number;
+  compostCycleCount: number;
   nowMs: number;
   onClose: () => void;
   onChangeRackSize: (size: number) => void;
@@ -44,10 +44,8 @@ interface GardenRackPanelProps {
   onWaterTier: (tierIndex: number) => void;
   onHarvestTier: (tierIndex: number) => void;
   onBuildAnotherPipe: () => void;
-  onInstallJojo: () => void;
-  onRefillJojo: () => void;
-  onToggleShadeCloth: () => void;
-  onAdvanceWeather: () => void;
+  onOpenElNinoHub: () => void;
+  onSwitchToCompost: () => void;
 }
 
 const RACK_OPTIONS = [
@@ -82,13 +80,14 @@ export const GardenRackPanel: React.FC<GardenRackPanelProps> = ({
   tiers,
   hasReadyPipe,
   totalHarvestedCount,
-  jojoInstalled,
   jojoLitres,
-  jojoCapacity,
   shadeClothInstalled,
   weatherMode,
   litresSaved,
   foodServings,
+  compostYieldsSinceRefresh,
+  compostYieldCycleLimit,
+  compostCycleCount,
   nowMs,
   onClose,
   onChangeRackSize,
@@ -97,24 +96,22 @@ export const GardenRackPanel: React.FC<GardenRackPanelProps> = ({
   onWaterTier,
   onHarvestTier,
   onBuildAnotherPipe,
-  onInstallJojo,
-  onRefillJojo,
-  onToggleShadeCloth,
-  onAdvanceWeather,
+  onOpenElNinoHub,
+  onSwitchToCompost,
 }) => {
   const [plantingTier, setPlantingTier] = useState<number | null>(null);
   const [expandedTier, setExpandedTier] = useState<number | null>(0);
-  const [defenseOpen, setDefenseOpen] = useState(true);
 
   if (!open) return null;
 
-  const weather = WEATHER_FORECASTS[weatherMode];
   const minAllowedSize = Math.max(
     2,
     tiers.reduce((max, t, idx) => (t.pipeInstalled ? Math.max(max, idx + 1) : max), 2)
   );
-  const jojoPct = Math.round((jojoLitres / Math.max(1, jojoCapacity)) * 100);
   const canWaterFromSupply = jojoLitres >= 3;
+  const safeLimit = Math.max(1, compostYieldCycleLimit);
+  const yieldsRemaining = Math.max(0, safeLimit - compostYieldsSinceRefresh);
+  const compostNeedsRefresh = compostYieldsSinceRefresh >= safeLimit;
 
   return (
     <div className="fixed inset-0 z-40 bg-slate-950/75 flex items-center justify-center p-3 sm:p-5">
@@ -132,7 +129,7 @@ export const GardenRackPanel: React.FC<GardenRackPanelProps> = ({
               </span>
             </div>
             <h2 className="text-base sm:text-lg font-bold text-white">
-              Vertical Rack &amp; El Niño Defense Hub
+              Vertical Hydroponic Rack
             </h2>
           </div>
           <button
@@ -145,128 +142,54 @@ export const GardenRackPanel: React.FC<GardenRackPanelProps> = ({
           </button>
         </div>
 
-        {/* Collapsible El Nino Defense Dropdown */}
-        <div className="border-b border-slate-800 bg-slate-900/90">
-          <button
-            type="button"
-            onClick={() => setDefenseOpen((v) => !v)}
-            className="w-full px-5 py-2 flex items-center justify-between text-xs font-semibold text-slate-200 hover:bg-slate-800/60 transition-colors cursor-pointer"
-          >
-            <span className="flex items-center gap-2">
-              <span>El Niño Defense Controls</span>
-              <span className="font-mono text-[11px] text-sky-300">
-                {Math.round(jojoLitres)}/{jojoCapacity}L · {shadeClothInstalled ? 'Shade On' : 'No Shade'} · {weather.label}
-              </span>
+        {/* Compost Nutrient Cycle Status Bar (Separate Door 3 Compost Loop) */}
+        <div
+          className={`px-5 py-2.5 border-b flex flex-wrap items-center justify-between gap-2 text-xs ${
+            compostNeedsRefresh
+              ? 'bg-amber-950/55 border-amber-500/45 text-amber-100'
+              : 'bg-slate-900/70 border-slate-800 text-slate-200'
+          }`}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            {compostNeedsRefresh ? (
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            ) : (
+              <Recycle className="w-4 h-4 text-emerald-400 shrink-0" />
+            )}
+            <span>
+              {compostNeedsRefresh
+                ? `Compost depleted after ${safeLimit} yields! Bring fresh compost in from Door 3 before planting new seeds.`
+                : `Compost Vitality: ${yieldsRemaining} of ${safeLimit} yield${safeLimit === 1 ? '' : 's'} remaining · Cycles applied: ${compostCycleCount}`}
             </span>
-            {defenseOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-          </button>
+          </div>
 
-          {defenseOpen && (
-            <div className="px-4 sm:px-5 pb-3 pt-1 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-              {/* 1. Craftable JoJo Rainwater Tank */}
-              <div className="rounded-xl bg-slate-950 border border-slate-800 p-2.5 flex flex-col justify-between">
-                <div className="flex items-center justify-between gap-1.5">
-                  <span className="text-[11px] font-semibold text-sky-300 flex items-center gap-1">
-                    <CloudRain className="w-3.5 h-3.5" />
-                    JoJo Tank
-                  </span>
-                  <span className="text-[11px] font-mono text-white tabular-nums">
-                    {jojoInstalled ? `${Math.round(jojoLitres)}/${jojoCapacity}L` : `${Math.round(jojoLitres)}L Bucket`}
-                  </span>
-                </div>
-                <div className="mt-1.5 h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                  <div
-                    style={{ width: `${Math.min(100, jojoPct)}%` }}
-                    className="h-full bg-sky-500 transition-all"
-                  />
-                </div>
-                <div className="mt-2">
-                  {!jojoInstalled ? (
-                    <button
-                      type="button"
-                      onClick={onInstallJojo}
-                      className="w-full py-1 px-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-semibold cursor-pointer"
-                    >
-                      Build JoJo Tank (60 L)
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={onRefillJojo}
-                      disabled={jojoLitres >= jojoCapacity}
-                      className={`w-full py-1 px-2 rounded-lg text-[11px] font-semibold transition-colors ${
-                        jojoLitres >= jojoCapacity
-                          ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                          : weather.rainAllowed
-                            ? 'bg-sky-600 hover:bg-sky-500 text-white cursor-pointer'
-                            : 'bg-amber-600 hover:bg-amber-500 text-white cursor-pointer'
-                      }`}
-                    >
-                      {jojoLitres >= jojoCapacity
-                        ? 'Tank Full (60 L)'
-                        : weather.rainAllowed
-                          ? 'Catch Rain (+20 L)'
-                          : 'Dew Recovery (+6 L)'}
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* 2. Craftable 40% Agricultural Shade-Cloth Canopy */}
-              <div className="rounded-xl bg-slate-950 border border-slate-800 p-2.5 flex flex-col justify-between">
-                <div className="flex items-center justify-between gap-1.5">
-                  <span className="text-[11px] font-semibold text-emerald-300 flex items-center gap-1">
-                    <ShieldCheck className="w-3.5 h-3.5" />
-                    Shade Cloth
-                  </span>
-                  <span className="text-[11px] font-mono text-slate-300">
-                    {shadeClothInstalled ? '-35% Evap' : 'Exposed'}
-                  </span>
-                </div>
-                <p className="mt-1 text-[10px] text-slate-400 leading-tight">
-                  Cuts El Niño heat stress &amp; protects tender leaves.
-                </p>
-                <button
-                  type="button"
-                  onClick={onToggleShadeCloth}
-                  className={`mt-2 w-full py-1 px-2 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer ${
-                    shadeClothInstalled
-                      ? 'bg-emerald-700/80 hover:bg-emerald-600 text-emerald-100 border border-emerald-400/40'
-                      : 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                  }`}
-                >
-                  {shadeClothInstalled ? 'Shade Cloth Active' : 'Install 40% Shade'}
-                </button>
-              </div>
-
-              {/* 3. Preemptive El Nino Weather Forecast Challenge */}
-              <div className="rounded-xl bg-slate-950 border border-slate-800 p-2.5 flex flex-col justify-between">
-                <div className="flex items-center justify-between gap-1.5">
-                  <span
-                    className={`text-[11px] font-semibold flex items-center gap-1 ${
-                      weatherMode === 'heatwave'
-                        ? 'text-rose-400'
-                        : weatherMode === 'elnino_watch'
-                          ? 'text-amber-300'
-                          : 'text-emerald-300'
-                    }`}
-                  >
-                    <Sun className="w-3.5 h-3.5" />
-                    {weather.label}
-                  </span>
-                  <span className="text-[10px] font-mono text-slate-300">{weather.tempLabel}</span>
-                </div>
-                <p className="mt-1 text-[10px] text-slate-400 leading-tight">{weather.tip}</p>
-                <button
-                  type="button"
-                  onClick={onAdvanceWeather}
-                  className="mt-2 w-full py-1 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-200 border border-amber-500/35 text-[11px] font-semibold cursor-pointer"
-                >
-                  Test Next Forecast
-                </button>
-              </div>
-            </div>
-          )}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onSwitchToCompost();
+              }}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer transition-colors ${
+                compostNeedsRefresh
+                  ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold'
+                  : 'bg-slate-800 hover:bg-slate-700 text-amber-200 border border-amber-500/35'
+              }`}
+            >
+              {compostNeedsRefresh ? 'Redo Compost (Door 3)' : 'Door 3: Compost'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenElNinoHub();
+              }}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 border border-sky-500/35 text-[11px] font-semibold cursor-pointer"
+            >
+              <Sun className="w-3 h-3" />
+              <span>El Niño Hub</span>
+            </button>
+          </div>
         </div>
 
         {/* Rack Size Selector (2 to 6 Tiers) */}
@@ -302,7 +225,7 @@ export const GardenRackPanel: React.FC<GardenRackPanelProps> = ({
           {tiers.map((tier, idx) => {
             const live = computeTierLiveMetrics(tier, nowMs, weatherMode, shadeClothInstalled);
             const crop = getCropById(tier.cropId);
-            const isPickingSeed = plantingTier === idx;
+            const isPickingSeed = plantingTier === idx && !compostNeedsRefresh;
             const isExpanded = expandedTier === idx;
 
             return (
@@ -342,14 +265,28 @@ export const GardenRackPanel: React.FC<GardenRackPanelProps> = ({
                         </button>
                       )
                     ) : !tier.cropId ? (
-                      <button
-                        type="button"
-                        onClick={() => setPlantingTier(isPickingSeed ? null : idx)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold cursor-pointer"
-                      >
-                        <Sprout className="w-3.5 h-3.5" />
-                        <span>{isPickingSeed ? 'Close Seeds' : 'Choose Seed (10)'}</span>
-                      </button>
+                      compostNeedsRefresh ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onClose();
+                            onSwitchToCompost();
+                          }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold cursor-pointer"
+                        >
+                          <Recycle className="w-3.5 h-3.5" />
+                          <span>Bring Compost First</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setPlantingTier(isPickingSeed ? null : idx)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold cursor-pointer"
+                        >
+                          <Sprout className="w-3.5 h-3.5" />
+                          <span>{isPickingSeed ? 'Close Seeds' : 'Choose Seed (10)'}</span>
+                        </button>
+                      )
                     ) : (
                       <>
                         {live.waterPct < 90 && (

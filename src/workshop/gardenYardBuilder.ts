@@ -26,6 +26,7 @@ export interface GardenYardHandle {
   weatherAnchor: THREE.Vector3;
   kitchenDoorAnchor: THREE.Vector3;
   compostDoorAnchor: THREE.Vector3;
+  setDoorOpenFactors: (kitchenOpen: number, compostOpen: number) => void;
   setGardenState: (
     rackSize: number,
     tiers: TierSaveState[],
@@ -220,76 +221,97 @@ export function buildGardenYard(
     group.add(shrub);
   }
 
-  // 2. Kitchen Return Wall & Door behind player at z = 4.35
+  // 2. South Fence & Walk-Through Doors: Door 1 Kitchen (-1.45) & Door 3 Compost (+1.45)
   addFencePanel(9.8, 3.0, 0.2, 0, 1.5, 4.45);
-  const doorFrame = new THREE.Mesh(new THREE.BoxGeometry(1.36, 2.34, 0.26), mats.cabinetDarkMat);
-  doorFrame.position.set(0, 1.17, 4.42);
-  group.add(doorFrame);
 
-  const doorPanel = new THREE.Mesh(new THREE.BoxGeometry(1.12, 2.18, 0.08), mats.cabinetMat);
-  doorPanel.position.set(0, 1.12, 4.38);
-  group.add(doorPanel);
+  const buildGardenSouthDoor = (
+    xPos: number,
+    title: string,
+    sub: string,
+    accentHex: string,
+    portalHex: number,
+    glassMat: THREE.Material
+  ): THREE.Group => {
+    const dGroup = new THREE.Group();
+    dGroup.position.set(xPos, 0, 4.38);
 
-  const doorGlass = new THREE.Mesh(new THREE.BoxGeometry(0.76, 1.15, 0.09), mats.pvcAcrylicWindowMat);
-  doorGlass.position.set(0, 1.48, 4.38);
-  group.add(doorGlass);
+    const frameL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.34, 0.26), mats.cabinetDarkMat);
+    frameL.position.set(-0.62, 1.17, 0.04);
+    dGroup.add(frameL);
+    const frameR = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.34, 0.26), mats.cabinetDarkMat);
+    frameR.position.set(0.62, 1.17, 0.04);
+    dGroup.add(frameR);
+    const frameTop = new THREE.Mesh(new THREE.BoxGeometry(1.36, 0.14, 0.26), mats.cabinetDarkMat);
+    frameTop.position.set(0, 2.27, 0.04);
+    dGroup.add(frameTop);
 
-  const doorHandle = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.03, 0.08), mats.brassMat);
-  doorHandle.position.set(0.42, 1.05, 4.32);
-  group.add(doorHandle);
+    const leafPivot = new THREE.Group();
+    leafPivot.position.set(-0.56, 0, 0);
+    const doorPanel = new THREE.Mesh(new THREE.BoxGeometry(1.12, 2.18, 0.08), mats.cabinetMat);
+    doorPanel.position.set(0.56, 1.12, 0);
+    leafPivot.add(doorPanel);
 
-  const returnSignTex = createGardenSignTexture('KITCHEN LAB', '← ENTER WORKSHOP');
-  disposables.push(returnSignTex);
-  const returnSignMat = new THREE.MeshBasicMaterial({ map: returnSignTex });
-  disposables.push(returnSignMat);
-  const returnSign = new THREE.Mesh(new THREE.PlaneGeometry(1.25, 0.38), returnSignMat);
-  returnSign.position.set(0, 2.6, 4.33);
-  returnSign.rotation.y = Math.PI;
-  group.add(returnSign);
+    const doorGlass = new THREE.Mesh(new THREE.BoxGeometry(0.76, 1.15, 0.09), glassMat);
+    doorGlass.position.set(0.56, 1.48, 0);
+    leafPivot.add(doorGlass);
 
-  const doorBeacon = new THREE.Mesh(
-    new THREE.RingGeometry(0.32, 0.4, 28),
-    new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide })
+    const doorHandle = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.03, 0.08), mats.brassMat);
+    doorHandle.position.set(0.98, 1.05, -0.06);
+    leafPivot.add(doorHandle);
+    dGroup.add(leafPivot);
+
+    const signTex = createGardenSignTexture(title, sub, accentHex);
+    disposables.push(signTex);
+    const signMat = new THREE.MeshBasicMaterial({ map: signTex });
+    disposables.push(signMat);
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.38), signMat);
+    sign.position.set(0, 2.6, -0.05);
+    sign.rotation.y = Math.PI;
+    dGroup.add(sign);
+
+    const beacon = new THREE.Mesh(
+      new THREE.RingGeometry(0.32, 0.4, 28),
+      new THREE.MeshBasicMaterial({ color: portalHex, side: THREE.DoubleSide })
+    );
+    beacon.rotation.x = -Math.PI * 0.5;
+    beacon.position.set(0, 0.04, -0.52);
+    dGroup.add(beacon);
+    disposables.push(beacon.material as THREE.Material);
+
+    const pad = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.16, 0.56),
+      new THREE.MeshBasicMaterial({
+        color: portalHex,
+        transparent: true,
+        opacity: 0.32,
+        side: THREE.DoubleSide,
+      })
+    );
+    pad.rotation.x = -Math.PI * 0.5;
+    pad.position.set(0, 0.035, -0.36);
+    dGroup.add(pad);
+    disposables.push(pad.material as THREE.Material);
+
+    group.add(dGroup);
+    return leafPivot;
+  };
+
+  const kitchenDoorPivot = buildGardenSouthDoor(
+    -1.45,
+    'DOOR 1 · KITCHEN',
+    'WALK THROUGH →',
+    '#38bdf8',
+    0x38bdf8,
+    mats.pvcAcrylicWindowMat
   );
-  doorBeacon.rotation.x = -Math.PI * 0.5;
-  doorBeacon.position.set(0, 0.04, 3.85);
-  group.add(doorBeacon);
-  disposables.push(doorBeacon.material as THREE.Material);
-
-  // Door 3 Gate (Recycling & Composting Station) on South-East Wall (x = 2.65, z = 4.38)
-  const compostDoorFrame = new THREE.Mesh(new THREE.BoxGeometry(1.36, 2.34, 0.26), mats.cabinetDarkMat);
-  compostDoorFrame.position.set(2.65, 1.17, 4.42);
-  group.add(compostDoorFrame);
-
-  const compostDoorPanel = new THREE.Mesh(new THREE.BoxGeometry(1.12, 2.18, 0.08), mats.butcherBlockMat);
-  compostDoorPanel.position.set(2.65, 1.12, 4.38);
-  group.add(compostDoorPanel);
-
-  const compostDoorWindow = new THREE.Mesh(new THREE.BoxGeometry(0.76, 1.15, 0.09), mats.leafMat);
-  compostDoorWindow.position.set(2.65, 1.48, 4.38);
-  group.add(compostDoorWindow);
-
-  const compostDoorHandle = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.03, 0.08), mats.brassMat);
-  compostDoorHandle.position.set(3.07, 1.05, 4.32);
-  group.add(compostDoorHandle);
-
-  const compostSignTex = createGardenSignTexture('DOOR 3 · COMPOST', 'RECYCLE & MULCH →', '#fbbf24');
-  disposables.push(compostSignTex);
-  const compostSignMat = new THREE.MeshBasicMaterial({ map: compostSignTex });
-  disposables.push(compostSignMat);
-  const compostSign = new THREE.Mesh(new THREE.PlaneGeometry(1.32, 0.38), compostSignMat);
-  compostSign.position.set(2.65, 2.6, 4.33);
-  compostSign.rotation.y = Math.PI;
-  group.add(compostSign);
-
-  const compostBeacon = new THREE.Mesh(
-    new THREE.RingGeometry(0.32, 0.4, 28),
-    new THREE.MeshBasicMaterial({ color: 0xfbbf24, side: THREE.DoubleSide })
+  const compostDoorPivot = buildGardenSouthDoor(
+    1.45,
+    'DOOR 3 · COMPOST',
+    'WALK THROUGH →',
+    '#fbbf24',
+    0xfbbf24,
+    mats.leafMat
   );
-  compostBeacon.rotation.x = -Math.PI * 0.5;
-  compostBeacon.position.set(2.65, 0.04, 3.85);
-  group.add(compostBeacon);
-  disposables.push(compostBeacon.material as THREE.Material);
 
   // 3. Craftable JoJo Rainwater Harvesting Tank Station (x = 2.25, z = -1.75)
   const jojoRoot = new THREE.Group();
@@ -773,14 +795,20 @@ export function buildGardenYard(
     disposables.forEach((d) => d.dispose());
   };
 
+  const setDoorOpenFactors = (kitchenOpen: number, compostOpen: number) => {
+    kitchenDoorPivot.rotation.y = THREE.MathUtils.clamp(kitchenOpen, 0, 1) * 1.25;
+    compostDoorPivot.rotation.y = THREE.MathUtils.clamp(compostOpen, 0, 1) * 1.25;
+  };
+
   return {
     group,
     colliders,
     rackAnchor: new THREE.Vector3(0, 0, -0.85),
     jojoAnchor: new THREE.Vector3(2.25, 0, -1.75),
     weatherAnchor: new THREE.Vector3(-2.25, 0, -1.75),
-    kitchenDoorAnchor: new THREE.Vector3(0, 0, 4.15),
-    compostDoorAnchor: new THREE.Vector3(2.65, 0, 4.15),
+    kitchenDoorAnchor: new THREE.Vector3(-1.45, 0, 4.15),
+    compostDoorAnchor: new THREE.Vector3(1.45, 0, 4.15),
+    setDoorOpenFactors,
     setGardenState,
     update,
     dispose,

@@ -71,7 +71,10 @@ service cloud.firestore {
         && (!('door3CompostStep' in data) || (data.door3CompostStep is int && data.door3CompostStep >= 0 && data.door3CompostStep <= 6))
         && (!('door3CompostRejectTested' in data) || (data.door3CompostRejectTested is int && data.door3CompostRejectTested >= 0 && data.door3CompostRejectTested <= 4))
         && (!('door3MulchMaterial' in data) || data.door3MulchMaterial == null || data.door3MulchMaterial in ['cardboard', 'newspaper'])
-        && (!('door3MulchStep' in data) || (data.door3MulchStep is int && data.door3MulchStep >= 0 && data.door3MulchStep <= 4));
+        && (!('door3MulchStep' in data) || (data.door3MulchStep is int && data.door3MulchStep >= 0 && data.door3MulchStep <= 4))
+        && (!('compostYieldsSinceRefresh' in data) || (data.compostYieldsSinceRefresh is int && data.compostYieldsSinceRefresh >= 0 && data.compostYieldsSinceRefresh <= 50))
+        && (!('compostCycleCount' in data) || (data.compostCycleCount is int && data.compostCycleCount >= 0 && data.compostCycleCount <= 10000))
+        && (!('bestCompetitionMs' in data) || data.bestCompetitionMs == null || (data.bestCompetitionMs is int && data.bestCompetitionMs >= 0 && data.bestCompetitionMs <= 86400000));
     }
 
     function isValidStudentMetaFields(data) {
@@ -116,6 +119,9 @@ service cloud.firestore {
           'door3CompostRejectTested',
           'door3MulchMaterial',
           'door3MulchStep',
+          'compostYieldsSinceRefresh',
+          'compostCycleCount',
+          'bestCompetitionMs',
           'role',
           'schoolName',
           'schoolKey',
@@ -597,6 +603,206 @@ service cloud.firestore {
         && data.createdAt is timestamp;
     }
 
+    function isValidAdminMetaDoc(data) {
+      return data.keys().hasAll(['docId', 'claimed', 'primaryAdminName', 'claimedAt'])
+        && data.keys().hasOnly(['docId', 'claimed', 'primaryAdminName', 'claimedAt'])
+        && data.docId == 'status'
+        && data.claimed == true
+        && data.primaryAdminName is string
+        && data.primaryAdminName.size() >= 1
+        && data.primaryAdminName.size() <= 40
+        && data.claimedAt is timestamp;
+    }
+
+    function isValidAdminAccountDoc(data, pathKey) {
+      return data.keys().hasAll(['adminKey', 'adminName', 'role', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['adminKey', 'adminName', 'role', 'createdAt', 'updatedAt'])
+        && data.adminKey is string
+        && data.adminKey == pathKey
+        && data.adminName is string
+        && data.adminName.size() >= 1
+        && data.adminName.size() <= 40
+        && data.role == 'admin'
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAdminWriteTokenDoc(data, pathId) {
+      return data.keys().hasAll(['tokenId', 'adminKey', 'createdAt'])
+        && data.keys().hasOnly(['tokenId', 'adminKey', 'createdAt'])
+        && data.tokenId is string
+        && data.tokenId == pathId
+        && isValidFarmerKey(data.adminKey)
+        && data.createdAt is timestamp;
+    }
+
+    function hasFreshAdminWriteToken(tokenId) {
+      return isValidDocId(tokenId)
+        && existsAfter(/databases/$(database)/documents/admin_write_tokens/$(tokenId))
+        && getAfter(/databases/$(database)/documents/admin_write_tokens/$(tokenId)).data.createdAt == request.time;
+    }
+
+    function isValidBannerEntry(b) {
+      return b is map
+        && b.keys().hasAll(['id', 'text', 'style', 'stage', 'active'])
+        && b.keys().hasOnly(['id', 'text', 'style', 'stage', 'active'])
+        && b.id is string
+        && b.id.size() >= 1
+        && b.id.size() <= 64
+        && b.text is string
+        && b.text.size() >= 2
+        && b.text.size() <= 180
+        && b.style in ['scroll', 'flash']
+        && b.stage in ['all', 'kitchen', 'garden', 'compost', 'harvest_ready', 'compost_needed']
+        && b.active is bool;
+    }
+
+    function isValidBannerList(banners) {
+      return banners is list
+        && banners.size() <= 12
+        && (banners.size() == 0 || isValidBannerEntry(banners[0]));
+    }
+
+    function isValidSystemConfigDoc(data, pathId) {
+      return data.keys().hasAll([
+          'configId',
+          'competitionTimerEnabled',
+          'compostYieldCycleLimit',
+          'challengeBannerText',
+          'actionTokenId',
+          'updatedByAdminName',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'configId',
+          'competitionTimerEnabled',
+          'compostYieldCycleLimit',
+          'challengeBannerText',
+          'banners',
+          'actionTokenId',
+          'updatedByAdminName',
+          'updatedAt'
+        ])
+        && data.configId == pathId
+        && data.competitionTimerEnabled is bool
+        && data.compostYieldCycleLimit is int
+        && data.compostYieldCycleLimit >= 1
+        && data.compostYieldCycleLimit <= 10
+        && data.challengeBannerText is string
+        && data.challengeBannerText.size() <= 180
+        && (!('banners' in data) || isValidBannerList(data.banners))
+        && isValidDocId(data.actionTokenId)
+        && data.updatedByAdminName is string
+        && data.updatedByAdminName.size() >= 1
+        && data.updatedByAdminName.size() <= 40
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAdminDocumentDoc(data, pathId) {
+      return data.keys().hasAll([
+          'docId',
+          'title',
+          'description',
+          'category',
+          'fileName',
+          'mimeType',
+          'sizeBytes',
+          'contentBase64',
+          'active',
+          'actionTokenId',
+          'uploadedByAdminName',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'docId',
+          'title',
+          'description',
+          'category',
+          'fileName',
+          'mimeType',
+          'sizeBytes',
+          'contentBase64',
+          'active',
+          'actionTokenId',
+          'uploadedByAdminName',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.docId is string
+        && data.docId == pathId
+        && data.title is string
+        && data.title.size() >= 2
+        && data.title.size() <= 120
+        && data.description is string
+        && data.description.size() <= 300
+        && data.category in ['guide', 'rules', 'curriculum', 'notice']
+        && data.fileName is string
+        && data.fileName.size() >= 1
+        && data.fileName.size() <= 120
+        && data.mimeType is string
+        && data.mimeType.size() >= 3
+        && data.mimeType.size() <= 80
+        && data.sizeBytes is int
+        && data.sizeBytes >= 1
+        && data.sizeBytes <= 450000
+        && data.contentBase64 is string
+        && data.contentBase64.size() >= 1
+        && data.contentBase64.size() <= 620000
+        && data.active is bool
+        && isValidDocId(data.actionTokenId)
+        && data.uploadedByAdminName is string
+        && data.uploadedByAdminName.size() >= 1
+        && data.uploadedByAdminName.size() <= 40
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCompetitionRunDoc(data, pathId) {
+      return data.keys().hasAll([
+          'runId',
+          'farmerKey',
+          'farmerName',
+          'schoolId',
+          'grade',
+          'elapsedMs',
+          'compostCycleCount',
+          'milestoneLabel',
+          'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'runId',
+          'farmerKey',
+          'farmerName',
+          'schoolId',
+          'grade',
+          'elapsedMs',
+          'compostCycleCount',
+          'milestoneLabel',
+          'createdAt'
+        ])
+        && data.runId is string
+        && data.runId == pathId
+        && isValidFarmerKey(data.farmerKey)
+        && data.farmerName is string
+        && data.farmerName.size() >= 1
+        && data.farmerName.size() <= 40
+        && data.schoolId is string
+        && data.schoolId.size() <= 100
+        && data.grade is string
+        && data.grade.size() <= 40
+        && data.elapsedMs is int
+        && data.elapsedMs >= 500
+        && data.elapsedMs <= 86400000
+        && data.compostCycleCount is int
+        && data.compostCycleCount >= 0
+        && data.compostCycleCount <= 10000
+        && data.milestoneLabel is string
+        && data.milestoneLabel.size() >= 2
+        && data.milestoneLabel.size() <= 80
+        && data.createdAt is timestamp;
+    }
+
     // Connection probe document (single get only, no list or writes)
     match /test/connection {
       allow get: if request.time != null;
@@ -637,6 +843,9 @@ service cloud.firestore {
           'door3CompostRejectTested',
           'door3MulchMaterial',
           'door3MulchStep',
+          'compostYieldsSinceRefresh',
+          'compostCycleCount',
+          'bestCompetitionMs',
           'role',
           'schoolName',
           'schoolKey',
@@ -782,6 +991,91 @@ service cloud.firestore {
       allow list: if resource.data.userId is string && resource.data.userId.size() == 64;
       allow create: if isValidDocId(topupId)
         && isValidWalletTopupDoc(incoming(), topupId)
+        && incoming().createdAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // Singleton bootstrap status doc for Admin account claiming
+    match /admin_meta/{docId} {
+      allow get: if docId == 'status' && request.time != null;
+      allow list: if false;
+      allow create: if docId == 'status'
+        && isValidAdminMetaDoc(incoming())
+        && incoming().claimedAt == request.time
+        && !exists(/databases/$(database)/documents/admin_meta/status);
+      allow update, delete: if false;
+    }
+
+    // Private Admin records keyed by SHA-256(adminName + passcode)
+    match /admins/{adminKey} {
+      allow get: if isValidFarmerKey(adminKey);
+      allow list: if false;
+      allow create: if isValidFarmerKey(adminKey)
+        && isValidAdminAccountDoc(incoming(), adminKey)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && !exists(/databases/$(database)/documents/admin_meta/status);
+      allow update: if isValidFarmerKey(adminKey)
+        && isValidAdminAccountDoc(incoming(), adminKey)
+        && incoming().adminKey == existing().adminKey
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['adminName', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    // Write-only atomic Admin action tokens (prevents adminKey exposure on public reads)
+    match /admin_write_tokens/{tokenId} {
+      allow read: if false;
+      allow create: if isValidDocId(tokenId)
+        && isValidAdminWriteTokenDoc(incoming(), tokenId)
+        && incoming().createdAt == request.time
+        && exists(/databases/$(database)/documents/admins/$(incoming().adminKey));
+      allow update, delete: if false;
+    }
+
+    // Admin-controlled global settings (Competition Timer & Compost Redo Yield Limit)
+    match /system_config/{configId} {
+      allow get: if configId == 'global' && request.time != null;
+      allow list: if false;
+      allow create, update: if configId == 'global'
+        && isValidSystemConfigDoc(incoming(), configId)
+        && incoming().updatedAt == request.time
+        && hasFreshAdminWriteToken(incoming().actionTokenId);
+      allow delete: if false;
+    }
+
+    // Admin-uploaded documents & curriculum guides
+    match /admin_documents/{docId} {
+      allow get, list: if request.time != null;
+      allow create: if isValidDocId(docId)
+        && isValidAdminDocumentDoc(incoming(), docId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && hasFreshAdminWriteToken(incoming().actionTokenId);
+      allow update: if isValidDocId(docId)
+        && isValidAdminDocumentDoc(incoming(), docId)
+        && incoming().docId == existing().docId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'title',
+          'description',
+          'category',
+          'active',
+          'actionTokenId',
+          'uploadedByAdminName',
+          'updatedAt'
+        ])
+        && hasFreshAdminWriteToken(incoming().actionTokenId);
+      allow delete: if false;
+    }
+
+    // Competition speed-run leaderboard records
+    match /competition_runs/{runId} {
+      allow get, list: if request.time != null;
+      allow create: if isValidDocId(runId)
+        && isValidCompetitionRunDoc(incoming(), runId)
         && incoming().createdAt == request.time;
       allow update, delete: if false;
     }
