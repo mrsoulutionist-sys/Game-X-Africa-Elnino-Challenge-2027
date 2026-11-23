@@ -23,6 +23,7 @@ import {
   type WeatherMode,
 } from '../workshop/crops';
 import type { BuildStepId } from '../workshop/steps';
+import { syncLeaderboardStudent } from './leaderboardService';
 
 export type ActiveZone = 'kitchen' | 'garden' | 'compost';
 
@@ -537,6 +538,10 @@ export async function loginOrCreateFarmer(
       grade: resolvedGrade ?? 'Grade 4',
     });
 
+    void syncLeaderboardStudent(profile).catch((err) => {
+      console.error('Failed to sync returning student to leaderboard:', err);
+    });
+
     return { profile, isReturning: true };
   }
 
@@ -589,6 +594,10 @@ export async function loginOrCreateFarmer(
     schoolId: schoolKey || 'community',
     schoolName: cleanSchoolName || 'Community School',
     grade: cleanGrade ?? 'Grade 4',
+  });
+
+  void syncLeaderboardStudent(freshProfile).catch((err) => {
+    console.error('Failed to sync new student to leaderboard:', err);
   });
 
   return { profile: freshProfile, isReturning: false };
@@ -753,6 +762,10 @@ export async function saveFarmerProgress(profile: FarmerProfile): Promise<void> 
   } catch (err) {
     handleFirestoreError(err, OperationType.UPDATE, path);
   }
+
+  void syncLeaderboardStudent(profile).catch((err) => {
+    console.error('Failed to sync student progress to leaderboard:', err);
+  });
 }
 
 export function resizeTierArray(existing: TierSaveState[], nextSize: number): TierSaveState[] {

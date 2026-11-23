@@ -21,3 +21,4 @@
 10. Client-forged timestamps (`createdAt` or `updatedAt != request.time`) -> rejected by temporal integrity check.
 11. Mutating `createdAt` or `farmerKey` on update -> rejected by immutability check.
 12. Deleting a farmer document -> rejected by `allow delete: if false`.
+13. Private collections (`/farmers`, `/parents`, `/users`, `/store_orders`) remain un-listable globally; public Leaderboard rankings read exclusively from schema-validated `/leaderboard_students` (non-PII harvest counters) and append-only `/grade_sale_events` (anonymized school/grade ZAR totals without `buyerUid` or wallet balances).

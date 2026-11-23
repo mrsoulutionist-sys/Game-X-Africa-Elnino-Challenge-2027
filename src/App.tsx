@@ -10,6 +10,7 @@ import { EinsteinNarrator } from './components/EinsteinNarrator';
 import { ElNinoDefenseModal } from './components/ElNinoDefenseModal';
 import { FarmerLoginOverlay } from './components/FarmerLoginOverlay';
 import { GardenRackPanel } from './components/GardenRackPanel';
+import { LeaderboardModal } from './components/LeaderboardModal';
 import { ParentPortal } from './components/ParentPortal';
 import { WickExplainerModal } from './components/WickExplainerModal';
 import { WorkshopHud } from './components/WorkshopHud';
@@ -128,6 +129,7 @@ export function App() {
   const [compostModalOpen, setCompostModalOpen] = useState(false);
   const [compostModalTab, setCompostModalTab] = useState<WorkstationTab | undefined>(undefined);
   const [compostDropdownOpen, setCompostDropdownOpen] = useState(false);
+  const [leaderboardOpen, setLeaderboardOpen] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [bannerVisible, setBannerVisible] = useState(false);
   const [bannerIndex, setBannerIndex] = useState(0);
@@ -492,6 +494,7 @@ export function App() {
     setCompostModalOpen(false);
     setWickModalOpen(false);
     setDocsModalOpen(false);
+    setLeaderboardOpen(false);
     setFarmerProfile(null);
     setParentProfile(null);
     setAdminProfile(null);
@@ -1045,6 +1048,8 @@ export function App() {
               setCompostModalOpen(true);
             }}
             onOpenAdminDocs={() => setDocsModalOpen(true)}
+            leaderboardOpen={leaderboardOpen}
+            onToggleLeaderboard={() => setLeaderboardOpen((v) => !v)}
             onLogout={handleLogout}
           />
 
@@ -1231,6 +1236,18 @@ export function App() {
           onUpdateProgress={handleUpdateDoor3}
           onStartFreshCompostCycle={handleStartFreshCompostCycle}
           onSwitchToGarden={() => handleGuideToDoor('garden')}
+        />
+      )}
+
+      {/* Full-Screen Live Leaderboard Accessible from Student HUD */}
+      {farmerProfile && (
+        <LeaderboardModal
+          open={leaderboardOpen}
+          onClose={() => setLeaderboardOpen(false)}
+          viewerRole="student"
+          currentStudentUid={farmerProfile.farmerKey}
+          currentSchoolName={farmerProfile.schoolName}
+          currentGrade={farmerProfile.grade}
         />
       )}
 

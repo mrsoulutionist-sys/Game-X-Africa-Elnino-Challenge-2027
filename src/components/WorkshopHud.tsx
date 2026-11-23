@@ -18,6 +18,7 @@ import {
   Timer,
   FileText,
   Megaphone,
+  Trophy,
   X,
   Footprints,
 } from 'lucide-react';
@@ -74,6 +75,8 @@ interface WorkshopHudProps {
   onOpenElNinoHub: () => void;
   onOpenCompostStation: (workstation?: 1 | 2 | 3) => void;
   onOpenAdminDocs: () => void;
+  leaderboardOpen: boolean;
+  onToggleLeaderboard: () => void;
   onLogout: () => void;
 }
 
@@ -117,6 +120,8 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
   onOpenElNinoHub,
   onOpenCompostStation,
   onOpenAdminDocs,
+  leaderboardOpen,
+  onToggleLeaderboard,
   onLogout,
 }) => {
   const step = BUILD_STEPS[hudState.stepId];
@@ -513,6 +518,21 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
               </button>
             ))}
           </div>
+
+          <button
+            type="button"
+            onClick={onToggleLeaderboard}
+            aria-expanded={leaderboardOpen}
+            title="View Full-Screen Harvest & Grade Sales Leaderboard"
+            className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+              leaderboardOpen
+                ? 'bg-amber-500 text-slate-950 border-amber-300'
+                : 'bg-slate-950/90 text-amber-300 border-amber-400/50 hover:bg-slate-900'
+            }`}
+          >
+            <Trophy className="w-3.5 h-3.5" />
+            <span>Leaderboard</span>
+          </button>
 
           <button
             type="button"

@@ -11,6 +11,7 @@ import {
   ShoppingBasket,
   Sparkles,
   TrendingUp,
+  Trophy,
   UserCheck,
   Wallet,
 } from 'lucide-react';
@@ -34,6 +35,7 @@ import {
 } from '../firebase/storeService';
 import { AdminDocumentsModal } from './AdminDocumentsModal';
 import { GradeProduceStore } from './GradeProduceStore';
+import { LeaderboardModal } from './LeaderboardModal';
 import { computePetAlerts, loadParentAdoptedPets, type AdoptedPet } from './petData';
 import { PetSanctuary } from './PetSanctuary';
 
@@ -58,6 +60,7 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ profile, onLogout })
   const [recentOrders, setRecentOrders] = useState<StoreOrder[]>([]);
   const [adminDocs, setAdminDocs] = useState<AdminDocumentRecord[]>([]);
   const [docsModalOpen, setDocsModalOpen] = useState(false);
+  const [leaderboardOpen, setLeaderboardOpen] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const inlineStoreRef = useRef<HTMLDivElement | null>(null);
@@ -221,6 +224,16 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ profile, onLogout })
             >
               <PawPrint className="h-4 w-4 text-[#007749]" />
               <span>My Sanctuary: {petCountLabel}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setLeaderboardOpen((v) => !v)}
+              aria-expanded={leaderboardOpen}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-[#FFB81C] bg-[#1E293B] px-3 py-1.5 text-sm font-bold text-white hover:bg-slate-800 cursor-pointer transition-colors"
+            >
+              <Trophy className="h-4 w-4 text-[#FFB81C]" />
+              <span>Leaderboard</span>
             </button>
 
             {adminDocs.length > 0 && (
@@ -526,6 +539,16 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ profile, onLogout })
         open={docsModalOpen}
         documents={adminDocs}
         onClose={() => setDocsModalOpen(false)}
+      />
+
+      <LeaderboardModal
+        open={leaderboardOpen}
+        onClose={() => setLeaderboardOpen(false)}
+        viewerRole="parent"
+        currentSchoolName={profile.schoolName}
+        currentGrades={profile.grades}
+        harvestBatches={harvestBatches}
+        storeListings={listings}
       />
     </div>
   );

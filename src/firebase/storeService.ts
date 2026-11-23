@@ -23,6 +23,7 @@ import {
   db,
   handleFirestoreError,
   OperationType,
+  SCHOOL_GRADES,
   type FarmerProfile,
   type SupporterRole,
 } from './firebaseClient';
@@ -741,6 +742,11 @@ export async function recordStudentHarvest(params: {
   const listingRef = doc(db, 'store_listings', listingId);
   const batchRef = doc(db, 'harvest_batches', batchId);
   const growRef = growId ? doc(db, 'student_grows', sanitizeDocId(growId)) : null;
+  const lbRef = doc(db, 'leaderboard_students', profile.farmerKey);
+
+  const safeSchoolName = schoolName || 'Community School';
+  const safeSchoolId = schoolId || 'community';
+  const safeGrade = (SCHOOL_GRADES as readonly string[]).includes(grade) ? grade : 'Grade 4';
 
   const petCareEffect = getPetCareEffectForItem(cleanTitle, category);
   const priceZar = getHarvestUnitPriceZar(cleanTitle, category);
@@ -750,6 +756,7 @@ export async function recordStudentHarvest(params: {
     await runTransaction(db, async (tx) => {
       const listingSnap = await tx.get(listingRef);
       const growSnap = growRef ? await tx.get(growRef) : null;
+      const lbSnap = await tx.get(lbRef);
 
       if (listingSnap.exists()) {
         const existingQty =
@@ -763,9 +770,9 @@ export async function recordStudentHarvest(params: {
           sourceType: 'student_harvest',
           quantityAvailable: nextQty,
           priceZar,
-          schoolId,
-          schoolName,
-          grade,
+          schoolId: safeSchoolId,
+          schoolName: safeSchoolName,
+          grade: safeGrade,
           studentUid: profile.farmerKey,
           studentName,
           petCareEffect,
@@ -781,9 +788,9 @@ export async function recordStudentHarvest(params: {
           sourceType: 'student_harvest',
           quantityAvailable: quantity,
           priceZar,
-          schoolId,
-          schoolName,
-          grade,
+          schoolId: safeSchoolId,
+          schoolName: safeSchoolName,
+          grade: safeGrade,
           studentUid: profile.farmerKey,
           studentName,
           petCareEffect,
@@ -797,9 +804,9 @@ export async function recordStudentHarvest(params: {
         batchId,
         studentUid: profile.farmerKey,
         studentName,
-        schoolId,
-        schoolName,
-        grade,
+        schoolId: safeSchoolId,
+        schoolName: safeSchoolName,
+        grade: safeGrade,
         itemTitle: cleanTitle,
         category,
         quantity,
@@ -810,6 +817,56 @@ export async function recordStudentHarvest(params: {
       if (growRef && growSnap?.exists()) {
         tx.update(growRef, {
           harvested: true,
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      const prevLbUnits =
+        lbSnap.exists() && typeof lbSnap.data().totalHarvestUnits === 'number'
+          ? Math.max(0, Math.round(lbSnap.data().totalHarvestUnits))
+          : 0;
+      const prevLbCount =
+        lbSnap.exists() && typeof lbSnap.data().totalHarvestedCount === 'number'
+          ? Math.max(0, Math.round(lbSnap.data().totalHarvestedCount))
+          : 0;
+      const nextLbUnits = Math.min(
+        100000,
+        Math.max(prevLbUnits + quantity, Math.round(profile.totalHarvestedCount))
+      );
+      const nextLbCount = Math.min(
+        100000,
+        Math.max(prevLbCount, Math.round(profile.totalHarvestedCount))
+      );
+      const safeServings = Math.max(0, Math.min(1000000, Math.round(profile.foodServings)));
+      const safeLitres = Math.max(
+        0,
+        Math.min(1000000, Math.round(profile.litresSaved * 10) / 10)
+      );
+
+      if (lbSnap.exists()) {
+        tx.update(lbRef, {
+          studentName,
+          schoolId: safeSchoolId,
+          schoolName: safeSchoolName,
+          grade: safeGrade,
+          totalHarvestUnits: nextLbUnits,
+          totalHarvestedCount: nextLbCount,
+          foodServings: safeServings,
+          litresSaved: safeLitres,
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        tx.set(lbRef, {
+          studentUid: profile.farmerKey,
+          studentName,
+          schoolId: safeSchoolId,
+          schoolName: safeSchoolName,
+          grade: safeGrade,
+          totalHarvestUnits: nextLbUnits,
+          totalHarvestedCount: nextLbCount,
+          foodServings: safeServings,
+          litresSaved: safeLitres,
+          createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
       }
@@ -967,6 +1024,16 @@ export async function checkoutStoreBasket(params: {
         ref: (typeof listingRefs)[number];
         nextQty: number;
       }[] = [];
+      const saleEventPayloads: {
+        listingId: string;
+        schoolId: string;
+        schoolName: string;
+        grade: string;
+        itemTitle: string;
+        sourceType: 'student_harvest' | 'care_bundle';
+        unitsSold: number;
+        amountZar: number;
+      }[] = [];
 
       for (let i = 0; i < params.basketItems.length; i++) {
         const requested = params.basketItems[i];
@@ -990,22 +1057,59 @@ export async function checkoutStoreBasket(params: {
 
         const unitPrice =
           typeof liveData.priceZar === 'number' ? liveData.priceZar : requested.listing.priceZar;
-        totalPaidZar = Math.round((totalPaidZar + unitPrice * requested.quantity) * 100) / 100;
+        const lineAmountZar = Math.max(
+          0.01,
+          Math.round(unitPrice * requested.quantity * 100) / 100
+        );
+        totalPaidZar = Math.round((totalPaidZar + lineAmountZar) * 100) / 100;
 
         const nextQty = liveQty - requested.quantity;
         listingUpdates.push({ ref: listingRefs[i], nextQty });
 
+        const resolvedListingId = String(liveData.listingId || requested.listing.listingId);
+        const rawTitle = String(liveData.title || requested.listing.title || 'Garden Produce').trim();
+        const safeTitle = (rawTitle.length >= 2 ? rawTitle : 'Garden Produce').slice(0, 100);
+        const safeSchoolName =
+          String(liveData.schoolName || requested.listing.schoolName || 'Community School')
+            .trim()
+            .slice(0, 100) || 'Community School';
+        const safeSchoolId =
+          String(
+            liveData.schoolId || requested.listing.schoolId || normalizeSchoolId(safeSchoolName)
+          )
+            .trim()
+            .slice(0, 100) || 'community';
+        const safeGrade =
+          String(liveData.grade || requested.listing.grade || 'Grade 4')
+            .trim()
+            .slice(0, 40) || 'Grade 4';
+        const resolvedSourceType: 'student_harvest' | 'care_bundle' =
+          liveData.sourceType === 'care_bundle' || requested.listing.sourceType === 'care_bundle'
+            ? 'care_bundle'
+            : 'student_harvest';
+
         verifiedItems.push({
-          listingId: String(liveData.listingId || requested.listing.listingId),
-          title: String(liveData.title || requested.listing.title),
+          listingId: resolvedListingId,
+          title: safeTitle,
           quantity: requested.quantity,
           priceZar: unitPrice,
-          sourceSchoolId: String(liveData.schoolId || requested.listing.schoolId),
-          sourceGrade: String(liveData.grade || requested.listing.grade),
+          sourceSchoolId: safeSchoolId,
+          sourceGrade: safeGrade,
           ...(typeof liveData.studentName === 'string' && liveData.studentName
             ? { studentName: liveData.studentName }
             : {}),
           petCareEffect: requested.listing.petCareEffect,
+        });
+
+        saleEventPayloads.push({
+          listingId: resolvedListingId,
+          schoolId: safeSchoolId,
+          schoolName: safeSchoolName,
+          grade: safeGrade,
+          itemTitle: safeTitle,
+          sourceType: resolvedSourceType,
+          unitsSold: Math.max(1, Math.min(1000, Math.round(requested.quantity))),
+          amountZar: lineAmountZar,
         });
       }
 
@@ -1127,6 +1231,25 @@ export async function checkoutStoreBasket(params: {
         paymentChannel: 'Karri Credit Wallet',
         createdAt: serverTimestamp(),
       });
+
+      for (let idx = 0; idx < saleEventPayloads.length; idx++) {
+        const ev = saleEventPayloads[idx];
+        const saleId = sanitizeDocId(`sale_${orderId}_${idx}`);
+        tx.set(doc(db, 'grade_sale_events', saleId), {
+          saleId,
+          orderId,
+          listingId: ev.listingId,
+          schoolId: ev.schoolId,
+          schoolName: ev.schoolName,
+          grade: ev.grade,
+          itemTitle: ev.itemTitle,
+          sourceType: ev.sourceType,
+          unitsSold: ev.unitsSold,
+          amountZar: ev.amountZar,
+          soldAt: serverTimestamp(),
+          soldAtMs: nowMs,
+        });
+      }
 
       finalOrder = {
         orderId,

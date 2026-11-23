@@ -803,6 +803,118 @@ service cloud.firestore {
         && data.createdAt is timestamp;
     }
 
+    function isValidLeaderboardStudentDoc(data, pathUid) {
+      return data.keys().hasAll([
+          'studentUid',
+          'studentName',
+          'schoolId',
+          'schoolName',
+          'grade',
+          'totalHarvestUnits',
+          'totalHarvestedCount',
+          'foodServings',
+          'litresSaved',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'studentUid',
+          'studentName',
+          'schoolId',
+          'schoolName',
+          'grade',
+          'totalHarvestUnits',
+          'totalHarvestedCount',
+          'foodServings',
+          'litresSaved',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidFarmerKey(data.studentUid)
+        && data.studentUid == pathUid
+        && data.studentName is string
+        && data.studentName.size() >= 1
+        && data.studentName.size() <= 40
+        && data.schoolId is string
+        && data.schoolId.size() >= 1
+        && data.schoolId.size() <= 100
+        && data.schoolName is string
+        && data.schoolName.size() >= 1
+        && data.schoolName.size() <= 100
+        && isValidGrade(data.grade)
+        && data.totalHarvestUnits is int
+        && data.totalHarvestUnits >= 0
+        && data.totalHarvestUnits <= 100000
+        && data.totalHarvestedCount is int
+        && data.totalHarvestedCount >= 0
+        && data.totalHarvestedCount <= 100000
+        && data.foodServings is int
+        && data.foodServings >= 0
+        && data.foodServings <= 1000000
+        && data.litresSaved is number
+        && data.litresSaved >= 0
+        && data.litresSaved <= 1000000
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidGradeSaleEventDoc(data, pathId) {
+      return data.keys().hasAll([
+          'saleId',
+          'orderId',
+          'listingId',
+          'schoolId',
+          'schoolName',
+          'grade',
+          'itemTitle',
+          'sourceType',
+          'unitsSold',
+          'amountZar',
+          'soldAt',
+          'soldAtMs'
+        ])
+        && data.keys().hasOnly([
+          'saleId',
+          'orderId',
+          'listingId',
+          'schoolId',
+          'schoolName',
+          'grade',
+          'itemTitle',
+          'sourceType',
+          'unitsSold',
+          'amountZar',
+          'soldAt',
+          'soldAtMs'
+        ])
+        && isValidDocId(data.saleId)
+        && data.saleId == pathId
+        && isValidDocId(data.orderId)
+        && isValidDocId(data.listingId)
+        && data.schoolId is string
+        && data.schoolId.size() >= 1
+        && data.schoolId.size() <= 100
+        && data.schoolName is string
+        && data.schoolName.size() >= 1
+        && data.schoolName.size() <= 100
+        && data.grade is string
+        && data.grade.size() >= 1
+        && data.grade.size() <= 40
+        && data.itemTitle is string
+        && data.itemTitle.size() >= 2
+        && data.itemTitle.size() <= 100
+        && data.sourceType in ['student_harvest', 'care_bundle']
+        && data.unitsSold is int
+        && data.unitsSold >= 1
+        && data.unitsSold <= 1000
+        && data.amountZar is number
+        && data.amountZar > 0
+        && data.amountZar <= 100000
+        && data.soldAt is timestamp
+        && data.soldAtMs is int
+        && data.soldAtMs >= 0;
+    }
+
     // Connection probe document (single get only, no list or writes)
     match /test/connection {
       allow get: if request.time != null;
@@ -1077,6 +1189,43 @@ service cloud.firestore {
       allow create: if isValidDocId(runId)
         && isValidCompetitionRunDoc(incoming(), runId)
         && incoming().createdAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // Public-safe student harvest leaderboard entries (without exposing /farmers)
+    match /leaderboard_students/{studentUid} {
+      allow get, list: if request.time != null;
+      allow create: if isValidFarmerKey(studentUid)
+        && isValidLeaderboardStudentDoc(incoming(), studentUid)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidFarmerKey(studentUid)
+        && isValidLeaderboardStudentDoc(incoming(), studentUid)
+        && incoming().studentUid == existing().studentUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().totalHarvestUnits >= existing().totalHarvestUnits
+        && incoming().totalHarvestedCount >= existing().totalHarvestedCount
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'studentName',
+          'schoolId',
+          'schoolName',
+          'grade',
+          'totalHarvestUnits',
+          'totalHarvestedCount',
+          'foodServings',
+          'litresSaved',
+          'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
+    // Append-only anonymized per-grade sale events written atomically during checkout
+    match /grade_sale_events/{saleId} {
+      allow get, list: if request.time != null;
+      allow create: if isValidDocId(saleId)
+        && isValidGradeSaleEventDoc(incoming(), saleId)
+        && incoming().soldAt == request.time;
       allow update, delete: if false;
     }
   }

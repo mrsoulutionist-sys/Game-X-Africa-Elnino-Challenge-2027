@@ -434,6 +434,45 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["runId", "farmerKey", "farmerName", "schoolId", "grade", "elapsedMs", "compostCycleCount", "milestoneLabel", "createdAt"]
+    },
+    "LeaderboardStudent": {
+      "title": "LeaderboardStudent",
+      "description": "Public-safe student harvest ranking projection synced on login, progress save, and harvest.",
+      "type": "object",
+      "properties": {
+        "studentUid": { "type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[a-f0-9]{64}$" },
+        "studentName": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "schoolId": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "schoolName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "grade": { "type": "string", "enum": ["Grade 4", "Grade 5", "Grade 6", "Grade 7", "Grade 8", "Grade 9", "Grade 10", "Grade 11", "Grade 12"] },
+        "totalHarvestUnits": { "type": "integer" },
+        "totalHarvestedCount": { "type": "integer" },
+        "foodServings": { "type": "integer" },
+        "litresSaved": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentUid", "studentName", "schoolId", "schoolName", "grade", "totalHarvestUnits", "totalHarvestedCount", "foodServings", "litresSaved", "createdAt", "updatedAt"]
+    },
+    "GradeSaleEvent": {
+      "title": "GradeSaleEvent",
+      "description": "Append-only public-safe sale event recorded atomically on store checkout for per-school and per-grade sales totals.",
+      "type": "object",
+      "properties": {
+        "saleId": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "orderId": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "listingId": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "schoolId": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "schoolName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "grade": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "itemTitle": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "sourceType": { "type": "string", "enum": ["student_harvest", "care_bundle"] },
+        "unitsSold": { "type": "integer" },
+        "amountZar": { "type": "number" },
+        "soldAt": { "type": "string", "format": "date-time" },
+        "soldAtMs": { "type": "integer" }
+      },
+      "required": ["saleId", "orderId", "listingId", "schoolId", "schoolName", "grade", "itemTitle", "sourceType", "unitsSold", "amountZar", "soldAt", "soldAtMs"]
     }
   },
   "firestore": {
@@ -520,6 +559,18 @@
         "$ref": "#/entities/CompetitionRun"
       },
       "description": "Fastest completion leaderboard runs logged during active Competition Timer mode."
+    },
+    "/leaderboard_students/{studentUid}": {
+      "schema": {
+        "$ref": "#/entities/LeaderboardStudent"
+      },
+      "description": "Public-safe student leaderboard entries enabling Student and Parent cross-school harvest rankings without listing private /farmers docs."
+    },
+    "/grade_sale_events/{saleId}": {
+      "schema": {
+        "$ref": "#/entities/GradeSaleEvent"
+      },
+      "description": "Append-only anonymized sale telemetry written during atomic store checkout for live school and per-grade sales aggregation."
     }
   }
 }
