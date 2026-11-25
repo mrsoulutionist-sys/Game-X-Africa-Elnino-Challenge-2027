@@ -281,6 +281,8 @@ export interface PetCatalogItem {
   badgeBgClass: string;
   greetingTemplates: (pseudonym: string) => string[];
   cuddleReactions: string[];
+  feedReactions: string[];
+  waterReactions: string[];
   natureTrivia: string[];
   bodyPartFacts: PetBodyPartFact[];
 }
@@ -306,6 +308,14 @@ export const SA_HERBIVORE_CATALOG: PetCatalogItem[] = [
     cuddleReactions: [
       'Thabo tucks happily into the warm sunshine and bobs his spotted head!',
       'Shell-rub bliss! Thabo loves gentle pats between the yellow-and-black rosettes.',
+    ],
+    feedReactions: [
+      'Crunch, munch! Thabo gobbles up fresh garden spinach and leafy greens from your school racks.',
+      'Happy tortoise beak-snips! Crisp lettuce leaves keep Thabo’s shell strong and his tummy full.',
+    ],
+    waterReactions: [
+      'Sip, sip! Thabo dips his beak into cool JoJo rainwater and tops up his Karoo hydration reserves.',
+      'Refreshing! Clean harvested water helps Thabo stay cool even on dry El Niño afternoons.',
     ],
     natureTrivia: [
       'Leopard tortoises (Stigmochelys pardalis) can store water in their bodies to survive dry El Niño seasons—just like a JoJo rainwater tank!',
@@ -355,6 +365,14 @@ export const SA_HERBIVORE_CATALOG: PetCatalogItem[] = [
       'Zuri thumps her soft hind paw with pure joy and twitches her velvet ears!',
       'So cozy! Zuri leans right against your hand with tiny happy nose-wiggles.',
     ],
+    feedReactions: [
+      'Nibble, nibble! Zuri crunches happily on sweet student-grown carrots and fragrant basil.',
+      'Ear-wiggle delight! Crisp herbs from the PVC wicking garden give Zuri happy hopper energy.',
+    ],
+    waterReactions: [
+      'Slurp, slurp! Zuri cools her twitchy nose in a bowl of fresh JoJo tank water.',
+      'Aahh! Cool rainwater keeps Zuri’s long velvet ears comfortable along warm riverbanks.',
+    ],
     natureTrivia: [
       'The Riverine Rabbit (Bunolagus monticularis) is critically endangered and found only along seasonal riverbeds in South Africa’s Karoo!',
       'Healthy riverside bushes hold moisture underground—just like buried 2L drip bottles and cardboard mulch keep garden roots cool.',
@@ -403,6 +421,14 @@ export const SA_HERBIVORE_CATALOG: PetCatalogItem[] = [
       'Kudu perks up his big expressive ears and gives a gentle nuzzle!',
       'Happy tail flick! Gentle head scratches make this shy fynbos antelope feel right at home.',
     ],
+    feedReactions: [
+      'Munch, munch! Kudu nibbles tender kale and sweet clover shoots straight from the shaded rack.',
+      'Gentle hooves tap with joy! Nutrient-rich greens grown with compost keep Kudu’s coat glossy.',
+    ],
+    waterReactions: [
+      'Cool and crisp! Kudu takes long gentle sips of clean rainwater from the sanctuary dish.',
+      'Hydrated and alert! Fresh water helps this fynbos browser stay cool under bright Cape skies.',
+    ],
     natureTrivia: [
       'Cape Grysboks (Raphicerus melanotis) are tiny nocturnal browsers of the Cape Floristic Region—a biodiversity hotspot found nowhere else on Earth!',
       'We get most of our moisture from tender shaded leaves, which is why shade cloth over school racks helps cut water loss by 35%.',
@@ -450,6 +476,14 @@ export const SA_HERBIVORE_CATALOG: PetCatalogItem[] = [
     cuddleReactions: [
       'Biko lets out a cheerful chirp and stretches out on his warm basking stone!',
       'Maximum coziness! Biko loves ear scritches after a morning soak in the sun.',
+    ],
+    feedReactions: [
+      'Chomp, chirp! Biko devours crisp Swiss chard and parsley leaves right on his basking granite.',
+      'Happy whiskers! Fresh school-garden greens fuel Biko’s afternoon rock-hopping.',
+    ],
+    waterReactions: [
+      'Splash! Biko laps up chilled JoJo rainwater from the rock pool bowl and gives a happy chirp.',
+      'Hydration station! Fresh water keeps Biko cool between Table Mountain sunbaths.',
     ],
     natureTrivia: [
       'Fun fact: Rock Hyraxes (Dassies) have rubbery, sweat-moistened footpads for gripping steep cliffs—and our closest living land relative is the elephant!',

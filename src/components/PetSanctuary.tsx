@@ -37,10 +37,11 @@ import {
 type SanctuaryTab = 'adopt' | 'habitat';
 type PetMotionState = 'idle' | 'hop' | 'play';
 
-interface FloatingHeart {
+interface FloatingCareToken {
   uid: number;
   leftPct: number;
   delayMs: number;
+  emoji: string;
 }
 
 interface PetSanctuaryProps {
@@ -74,7 +75,8 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
   const [petMotion, setPetMotion] = useState<PetMotionState>('idle');
   const [speechBubble, setSpeechBubble] = useState<{ title?: string; text: string } | null>(null);
   const [inspectedPartId, setInspectedPartId] = useState<string | null>(null);
-  const [floatingHearts, setFloatingHearts] = useState<FloatingHeart[]>([]);
+  const [floatingTokens, setFloatingTokens] = useState<FloatingCareToken[]>([]);
+  const [activeBowlAction, setActiveBowlAction] = useState<'feed' | 'water' | null>(null);
   const [savingCare, setSavingCare] = useState(false);
 
   const motionTimerRef = useRef<number | null>(null);
@@ -108,18 +110,34 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
     }, durationMs);
   };
 
-  const spawnHearts = () => {
+  const bowlTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (bowlTimerRef.current) window.clearTimeout(bowlTimerRef.current);
+    };
+  }, []);
+
+  const triggerBowlHighlight = (bowl: 'feed' | 'water') => {
+    if (bowlTimerRef.current) window.clearTimeout(bowlTimerRef.current);
+    setActiveBowlAction(bowl);
+    bowlTimerRef.current = window.setTimeout(() => {
+      setActiveBowlAction(null);
+    }, 1800);
+  };
+
+  const spawnCareTokens = (emoji: string) => {
     if (heartsTimerRef.current) window.clearTimeout(heartsTimerRef.current);
     const base = Date.now();
-    setFloatingHearts([
-      { uid: base + 1, leftPct: 38, delayMs: 0 },
-      { uid: base + 2, leftPct: 50, delayMs: 110 },
-      { uid: base + 3, leftPct: 62, delayMs: 210 },
-      { uid: base + 4, leftPct: 44, delayMs: 300 },
-      { uid: base + 5, leftPct: 57, delayMs: 380 },
+    setFloatingTokens([
+      { uid: base + 1, leftPct: 36, delayMs: 0, emoji },
+      { uid: base + 2, leftPct: 50, delayMs: 110, emoji },
+      { uid: base + 3, leftPct: 64, delayMs: 210, emoji },
+      { uid: base + 4, leftPct: 43, delayMs: 300, emoji },
+      { uid: base + 5, leftPct: 58, delayMs: 380, emoji },
     ]);
     heartsTimerRef.current = window.setTimeout(() => {
-      setFloatingHearts([]);
+      setFloatingTokens([]);
     }, 1700);
   };
 
@@ -199,11 +217,14 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
     setSpeechBubble({ text: msg });
 
     const now = Date.now();
-    await persistPetCare(activeAdoptedPet.id, (pet) => ({
-      ...pet,
-      happiness: Math.min(100, pet.happiness + 2),
-      lastCareAtMs: now,
-    }));
+    await persistPetCare(activeAdoptedPet.id, (pet) => {
+      const effective = computeEffectivePetStats(pet, now);
+      return {
+        ...effective,
+        happiness: Math.min(100, effective.happiness + 2),
+        lastCareAtMs: now,
+      };
+    });
   };
 
   const handlePetAndCuddle = async () => {
@@ -213,17 +234,71 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
     interactionIndexRef.current += 1;
 
     setInspectedPartId(null);
-    spawnHearts();
+    spawnCareTokens('❤️');
     triggerMotion('hop', 820);
     setSpeechBubble({ text: msg });
 
     const now = Date.now();
-    await persistPetCare(activeAdoptedPet.id, (pet) => ({
-      ...pet,
-      happiness: Math.min(100, pet.happiness + 8),
-      energy: Math.min(100, pet.energy + 4),
-      lastCareAtMs: now,
-    }));
+    await persistPetCare(activeAdoptedPet.id, (pet) => {
+      const effective = computeEffectivePetStats(pet, now);
+      return {
+        ...effective,
+        happiness: Math.min(100, effective.happiness + 8),
+        energy: Math.min(100, effective.energy + 4),
+        lastCareAtMs: now,
+      };
+    });
+  };
+
+  const handleFeedPet = async () => {
+    if (!activeAdoptedPet || !activeCatalog) return;
+    const reactions = activeCatalog.feedReactions;
+    const msg = reactions[interactionIndexRef.current % reactions.length];
+    interactionIndexRef.current += 1;
+
+    const snackEmoji = activeAdoptedPet.id === 'zuri-rabbit' ? '🥕' : '🥬';
+    setInspectedPartId(null);
+    spawnCareTokens(snackEmoji);
+    triggerBowlHighlight('feed');
+    triggerMotion('hop', 860);
+    setSpeechBubble({ title: 'Fresh Garden Meal', text: msg });
+
+    const now = Date.now();
+    await persistPetCare(activeAdoptedPet.id, (pet) => {
+      const effective = computeEffectivePetStats(pet, now);
+      return {
+        ...effective,
+        hunger: Math.min(100, effective.hunger + 22),
+        happiness: Math.min(100, effective.happiness + 6),
+        energy: Math.min(100, effective.energy + 4),
+        lastCareAtMs: now,
+      };
+    });
+  };
+
+  const handleGiveWater = async () => {
+    if (!activeAdoptedPet || !activeCatalog) return;
+    const reactions = activeCatalog.waterReactions;
+    const msg = reactions[interactionIndexRef.current % reactions.length];
+    interactionIndexRef.current += 1;
+
+    setInspectedPartId(null);
+    spawnCareTokens('💧');
+    triggerBowlHighlight('water');
+    triggerMotion('hop', 860);
+    setSpeechBubble({ title: 'Fresh JoJo Rainwater', text: msg });
+
+    const now = Date.now();
+    await persistPetCare(activeAdoptedPet.id, (pet) => {
+      const effective = computeEffectivePetStats(pet, now);
+      return {
+        ...effective,
+        water: Math.min(100, effective.water + 24),
+        happiness: Math.min(100, effective.happiness + 6),
+        energy: Math.min(100, effective.energy + 3),
+        lastCareAtMs: now,
+      };
+    });
   };
 
   const handlePlayTogether = async () => {
@@ -237,14 +312,17 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
     setSpeechBubble({ title: 'Nature Discovery', text: msg });
 
     const now = Date.now();
-    await persistPetCare(activeAdoptedPet.id, (pet) => ({
-      ...pet,
-      happiness: Math.min(100, pet.happiness + 5),
-      play: Math.min(100, pet.play + 10),
-      hunger: Math.max(35, pet.hunger - 3),
-      energy: Math.max(35, pet.energy - 3),
-      lastCareAtMs: now,
-    }));
+    await persistPetCare(activeAdoptedPet.id, (pet) => {
+      const effective = computeEffectivePetStats(pet, now);
+      return {
+        ...effective,
+        happiness: Math.min(100, effective.happiness + 5),
+        play: Math.min(100, effective.play + 10),
+        hunger: Math.max(25, effective.hunger - 3),
+        energy: Math.max(30, effective.energy - 3),
+        lastCareAtMs: now,
+      };
+    });
   };
 
   const handleInspectBodyPart = async (partId: string) => {
@@ -262,11 +340,14 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
     });
 
     const now = Date.now();
-    await persistPetCare(activeAdoptedPet.id, (pet) => ({
-      ...pet,
-      happiness: Math.min(100, pet.happiness + 2),
-      lastCareAtMs: now,
-    }));
+    await persistPetCare(activeAdoptedPet.id, (pet) => {
+      const effective = computeEffectivePetStats(pet, now);
+      return {
+        ...effective,
+        happiness: Math.min(100, effective.happiness + 2),
+        lastCareAtMs: now,
+      };
+    });
   };
 
   return (
@@ -583,18 +664,18 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
                       )}
 
                       <div className="relative flex items-center justify-center pointer-events-auto">
-                        {/* Floating Hearts Layer */}
-                        {floatingHearts.map((heart) => (
+                        {/* Floating Care Tokens Layer (Hearts, Greens, Water) */}
+                        {floatingTokens.map((token) => (
                           <span
-                            key={heart.uid}
+                            key={token.uid}
                             aria-hidden="true"
                             style={{
-                              left: `${heart.leftPct}%`,
-                              animationDelay: `${heart.delayMs}ms`,
+                              left: `${token.leftPct}%`,
+                              animationDelay: `${token.delayMs}ms`,
                             }}
                             className="animate-heart-float pointer-events-none absolute -top-2 text-2xl select-none"
                           >
-                            ❤️
+                            {token.emoji}
                           </span>
                         ))}
 
@@ -617,15 +698,64 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
                         </div>
                       </div>
                     </div>
+
+                    {/* Interactive Habitat Food & Water Bowls on the Grass */}
+                    <button
+                      type="button"
+                      onClick={handleFeedPet}
+                      aria-label={`Feed ${activeAdoptedPet.name} fresh garden greens`}
+                      className={`absolute left-3.5 bottom-3 flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs font-bold shadow-sm transition-all cursor-pointer ${
+                        activeBowlAction === 'feed'
+                          ? 'scale-105 border-[#007749] bg-[#ECFDF5] text-[#065F46] ring-2 ring-[#FFB81C]'
+                          : 'border-[#007749]/35 bg-white/95 text-[#1E293B] hover:border-[#007749] hover:bg-[#ECFDF5]'
+                      }`}
+                    >
+                      <Utensils className="h-3.5 w-3.5 text-[#007749]" />
+                      <span>Food Bowl</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleGiveWater}
+                      aria-label={`Give ${activeAdoptedPet.name} fresh JoJo rainwater`}
+                      className={`absolute right-3.5 bottom-3 flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs font-bold shadow-sm transition-all cursor-pointer ${
+                        activeBowlAction === 'water'
+                          ? 'scale-105 border-[#0284C7] bg-[#E0F2FE] text-[#0369A1] ring-2 ring-[#38BDF8]'
+                          : 'border-[#0284C7]/35 bg-white/95 text-[#1E293B] hover:border-[#0284C7] hover:bg-[#E0F2FE]'
+                      }`}
+                    >
+                      <Droplets className="h-3.5 w-3.5 text-[#0284C7]" />
+                      <span>Water Bowl</span>
+                    </button>
                   </div>
 
                   {/* DOCKED CARE BAR — Permanently Attached Right Below the Pet */}
-                  <div className="border-t border-slate-200 bg-[#F5EFE0] p-3">
+                  <div className="border-t border-slate-200 bg-[#F5EFE0] p-3 space-y-2">
+                    <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                      <button
+                        type="button"
+                        onClick={handleFeedPet}
+                        className="flex items-center justify-center gap-2 rounded-xl bg-[#007749] px-3 py-2.5 text-xs sm:text-sm font-bold text-white shadow-sm hover:bg-[#065F46] active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap"
+                      >
+                        <Utensils className="h-4 w-4 text-[#FFB81C]" />
+                        <span>Feed Pet 🥬</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleGiveWater}
+                        className="flex items-center justify-center gap-2 rounded-xl bg-[#0284C7] px-3 py-2.5 text-xs sm:text-sm font-bold text-white shadow-sm hover:bg-[#0369A1] active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap"
+                      >
+                        <Droplets className="h-4 w-4 text-sky-100" />
+                        <span>Give Water 💧</span>
+                      </button>
+                    </div>
+
                     <div className="grid grid-cols-3 gap-2 sm:gap-3">
                       <button
                         type="button"
                         onClick={handleSayHi}
-                        className="flex items-center justify-center gap-1.5 rounded-xl bg-[#001489] px-2.5 py-2.5 text-xs sm:text-sm font-semibold text-white hover:bg-[#001489]/90 active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap"
+                        className="flex items-center justify-center gap-1.5 rounded-xl bg-[#001489] px-2.5 py-2 text-xs sm:text-sm font-semibold text-white hover:bg-[#001489]/90 active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap"
                       >
                         <span>Say Hi 👋</span>
                       </button>
@@ -633,7 +763,7 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
                       <button
                         type="button"
                         onClick={handlePetAndCuddle}
-                        className="flex items-center justify-center gap-1.5 rounded-xl bg-[#E03C31] px-2.5 py-2.5 text-xs sm:text-sm font-semibold text-white hover:bg-[#c83228] active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap"
+                        className="flex items-center justify-center gap-1.5 rounded-xl bg-[#E03C31] px-2.5 py-2 text-xs sm:text-sm font-semibold text-white hover:bg-[#c83228] active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap"
                       >
                         <span>Pet &amp; Cuddle ❤️</span>
                       </button>
@@ -641,7 +771,7 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
                       <button
                         type="button"
                         onClick={handlePlayTogether}
-                        className="flex items-center justify-center gap-1.5 rounded-xl bg-[#007749] px-2.5 py-2.5 text-xs sm:text-sm font-semibold text-white hover:bg-[#065F46] active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap"
+                        className="flex items-center justify-center gap-1.5 rounded-xl bg-[#1E293B] px-2.5 py-2 text-xs sm:text-sm font-semibold text-white hover:bg-slate-800 active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap"
                       >
                         <span>Play Together 🌿</span>
                       </button>
@@ -713,14 +843,23 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
 
                         {/* Hunger / Food */}
                         <div>
-                          <div className="flex items-center justify-between text-xs font-semibold text-[#1E293B]">
+                          <div className="flex items-center justify-between gap-2 text-xs font-semibold text-[#1E293B]">
                             <span className="inline-flex items-center gap-1.5">
                               <Utensils className="h-3.5 w-3.5 text-[#007749]" />
                               Tummy (Food)
                             </span>
-                            <span className="tabular-nums text-[#B45309]">
-                              {effectivePet.hunger}%
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className="tabular-nums text-[#B45309]">
+                                {effectivePet.hunger}%
+                              </span>
+                              <button
+                                type="button"
+                                onClick={handleFeedPet}
+                                className="rounded-md bg-[#007749] px-2 py-0.5 text-[11px] font-bold text-white hover:bg-[#065F46] cursor-pointer transition-colors"
+                              >
+                                + Feed
+                              </button>
+                            </div>
                           </div>
                           <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-200">
                             <div
@@ -732,14 +871,23 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
 
                         {/* Water / Hydration */}
                         <div>
-                          <div className="flex items-center justify-between text-xs font-semibold text-[#1E293B]">
+                          <div className="flex items-center justify-between gap-2 text-xs font-semibold text-[#1E293B]">
                             <span className="inline-flex items-center gap-1.5">
                               <Droplets className="h-3.5 w-3.5 text-[#0284C7]" />
                               Hydration (Water)
                             </span>
-                            <span className="tabular-nums text-[#0369A1]">
-                              {effectivePet.water}%
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className="tabular-nums text-[#0369A1]">
+                                {effectivePet.water}%
+                              </span>
+                              <button
+                                type="button"
+                                onClick={handleGiveWater}
+                                className="rounded-md bg-[#0284C7] px-2 py-0.5 text-[11px] font-bold text-white hover:bg-[#0369A1] cursor-pointer transition-colors"
+                              >
+                                + Water
+                              </button>
+                            </div>
                           </div>
                           <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-200">
                             <div
