@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import type { WorkshopMaterials } from './materials';
-import { buildWorkshopWallSignage } from './sponsorSignage';
+import {
+  buildWorkshopWallSignage,
+  createPropBrandPlaque,
+  type DynamicSponsorController,
+} from './sponsorSignage';
 import type { BuildStepId, TargetZoneId } from './steps';
 
 export interface AABB {
@@ -270,7 +274,8 @@ function createBeacon(x: number, y: number, z: number): {
 
 export function buildKitchenWorkshopRoom(
   mats: WorkshopMaterials,
-  maxAnisotropy = 4
+  maxAnisotropy = 4,
+  sponsorController?: DynamicSponsorController
 ): KitchenRoomHandle {
   const group = new THREE.Group();
   const colliders: AABB[] = [];
@@ -278,7 +283,7 @@ export function buildKitchenWorkshopRoom(
   const disposableExtras: Array<{ dispose: () => void }> = [];
 
   // Game X Africa Wall Branding & Modular Sponsor Slots
-  const wallSignage = buildWorkshopWallSignage(maxAnisotropy, mats);
+  const wallSignage = buildWorkshopWallSignage(maxAnisotropy, mats, sponsorController);
   group.add(wallSignage.group);
   disposableExtras.push(wallSignage);
 
@@ -506,6 +511,19 @@ export function buildKitchenWorkshopRoom(
   addBox(fridge, 0.88, 0.024, 0.035, 0, 0.61, 0.495, mats.chromeMat);
   // Water/ice recess
   addBox(fridge, 0.24, 0.34, 0.03, -0.38, 1.42, 0.462, mats.darkMetalMat);
+  if (sponsorController) {
+    const fridgePlaque = createPropBrandPlaque({
+      controller: sponsorController,
+      slotId: 'kitchen_fridge',
+      width: 0.96,
+      height: 0.3,
+      mats,
+      maxAnisotropy,
+      disposables: disposableExtras,
+    });
+    fridgePlaque.position.set(0, 1.94, 0.478);
+    fridge.add(fridgePlaque);
+  }
   group.add(fridge);
   colliders.push({ minX: 2.7, maxX: 4.45, minZ: -4.45, maxZ: -3.4 });
 
@@ -550,6 +568,73 @@ export function buildKitchenWorkshopRoom(
   addBox(island, 2.84, 0.06, 1.36, 0, 0.89, 0, mats.butcherBlockMat, true, true);
   // Dark non-slip assembly mat flush on top (top at y = 0.928)
   addBox(island, 1.92, 0.008, 0.76, 0, 0.924, 0, mats.matPadMat, false, true);
+
+  if (sponsorController) {
+    // Front & back island workbench ("The Table") sponsor aprons
+    const tablePlaqueFront = createPropBrandPlaque({
+      controller: sponsorController,
+      slotId: 'kitchen_table',
+      width: 1.45,
+      height: 0.42,
+      mats,
+      maxAnisotropy,
+      disposables: disposableExtras,
+    });
+    tablePlaqueFront.position.set(0, 0.46, 0.642);
+    island.add(tablePlaqueFront);
+
+    const tablePlaqueBack = createPropBrandPlaque({
+      controller: sponsorController,
+      slotId: 'kitchen_table',
+      width: 1.45,
+      height: 0.42,
+      mats,
+      maxAnisotropy,
+      disposables: disposableExtras,
+    });
+    tablePlaqueBack.position.set(0, 0.46, -0.642);
+    tablePlaqueBack.rotation.y = Math.PI;
+    island.add(tablePlaqueBack);
+
+    // Kitchen Countertop Fascia ("The Kitchen Counter")
+    const northCounterPlaque = createPropBrandPlaque({
+      controller: sponsorController,
+      slotId: 'kitchen_counter',
+      width: 1.25,
+      height: 0.38,
+      mats,
+      maxAnisotropy,
+      disposables: disposableExtras,
+    });
+    northCounterPlaque.position.set(-0.32, 0.48, -3.48);
+    group.add(northCounterPlaque);
+
+    const westCounterPlaque = createPropBrandPlaque({
+      controller: sponsorController,
+      slotId: 'kitchen_counter',
+      width: 1.25,
+      height: 0.38,
+      mats,
+      maxAnisotropy,
+      disposables: disposableExtras,
+    });
+    westCounterPlaque.position.set(-3.58, 0.48, 0.45);
+    westCounterPlaque.rotation.y = Math.PI * 0.5;
+    group.add(westCounterPlaque);
+
+    // Prep Sink Splashback Plaque ("The Prep Sink")
+    const sinkPlaque = createPropBrandPlaque({
+      controller: sponsorController,
+      slotId: 'kitchen_sink',
+      width: 0.72,
+      height: 0.24,
+      mats,
+      maxAnisotropy,
+      disposables: disposableExtras,
+    });
+    sinkPlaque.position.set(-1.9, 1.12, -4.34);
+    group.add(sinkPlaque);
+  }
 
   tagTargetZone(island, 'workbench');
   interactableObjects.push(island);
@@ -607,6 +692,47 @@ export function buildKitchenWorkshopRoom(
   tagTargetZone(wicksProp, 'wick_station');
   interactableObjects.push(wicksProp);
   group.add(wicksProp);
+
+  if (sponsorController) {
+    // Persistent tool & supply station plaques ("The Hacksaw", "The Drill", "The Seeds")
+    const sawPlaque = createPropBrandPlaque({
+      controller: sponsorController,
+      slotId: 'kitchen_hacksaw',
+      width: 0.62,
+      height: 0.24,
+      mats,
+      maxAnisotropy,
+      disposables: disposableExtras,
+    });
+    sawPlaque.position.set(-4.36, 1.12, -1.15);
+    sawPlaque.rotation.y = Math.PI * 0.5;
+    group.add(sawPlaque);
+
+    const drillPlaque = createPropBrandPlaque({
+      controller: sponsorController,
+      slotId: 'kitchen_drill',
+      width: 0.62,
+      height: 0.24,
+      mats,
+      maxAnisotropy,
+      disposables: disposableExtras,
+    });
+    drillPlaque.position.set(1.2, 1.12, -4.32);
+    group.add(drillPlaque);
+
+    const seedsPlaque = createPropBrandPlaque({
+      controller: sponsorController,
+      slotId: 'kitchen_seeds',
+      width: 0.64,
+      height: 0.24,
+      mats,
+      maxAnisotropy,
+      disposables: disposableExtras,
+    });
+    seedsPlaque.position.set(4.36, 1.12, 0.15);
+    seedsPlaque.rotation.y = -Math.PI * 0.5;
+    group.add(seedsPlaque);
+  }
 
   const { group: pitcherProp, waterFill: pitcherWaterFill } = createPitcherProp(mats);
   pitcherProp.position.set(-1.14, 0.905, -3.82);

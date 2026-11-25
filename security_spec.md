@@ -22,3 +22,5 @@
 11. Mutating `createdAt` or `farmerKey` on update -> rejected by immutability check.
 12. Deleting a farmer document -> rejected by `allow delete: if false`.
 13. Private collections (`/farmers`, `/parents`, `/users`, `/store_orders`) remain un-listable globally; public Leaderboard rankings read exclusively from schema-validated `/leaderboard_students` (non-PII harvest counters) and append-only `/grade_sale_events` (anonymized school/grade ZAR totals without `buyerUid` or wallet balances).
+14. `/sponsor_slots/{slotId}` stores per-slot Admin sponsor branding (wording, compressed logo data URL <= 190 KB, or both) across Kitchen, Garden, Compost, and Platform rooms; public reads are allowed for rendering, creates/updates require a fresh `admin_write_tokens` proof verified via `hasFreshAdminWriteToken()`, and deletes are denied (`active: false` clears a slot).
+15. `weatherMode` in `/farmers/{farmerKey}` supports `'normal'`, `'rain_storm'`, `'windy'`, `'elnino_watch'`, and `'heatwave'`, paired with boolean precautions `windbreakInstalled` and `stormBraceInstalled`.

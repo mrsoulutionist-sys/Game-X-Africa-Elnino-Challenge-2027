@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import {
+  Building2,
   CheckCircle2,
   Download,
+  FileSpreadsheet,
   FileText,
   LogOut,
   Megaphone,
@@ -35,12 +37,21 @@ import {
   type CompetitionRunRecord,
   type SystemConfigState,
 } from '../firebase/adminService';
+import {
+  SPONSOR_SLOT_CATALOG,
+  type SponsorSlotAssignment,
+} from '../firebase/sponsorService';
+import { SponsorReportPanel } from './SponsorReportPanel';
+import { SponsorSlotManagerPanel } from './SponsorSlotManagerPanel';
 
 interface AdminPortalProps {
   admin: AdminProfile;
   systemConfig: SystemConfigState;
+  sponsorSlots: Record<string, SponsorSlotAssignment>;
   onLogout: () => void;
 }
+
+type AdminSectionTab = 'system' | 'sponsors' | 'reports';
 
 const DOC_CATEGORIES: Array<{ id: AdminDocCategory; label: string }> = [
   { id: 'guide', label: 'Garden & El Niño Guide' },
@@ -52,8 +63,10 @@ const DOC_CATEGORIES: Array<{ id: AdminDocCategory; label: string }> = [
 export const AdminPortal: React.FC<AdminPortalProps> = ({
   admin,
   systemConfig,
+  sponsorSlots,
   onLogout,
 }) => {
+  const [activeTab, setActiveTab] = useState<AdminSectionTab>('system');
   const [timerEnabled, setTimerEnabled] = useState(systemConfig.competitionTimerEnabled);
   const [compostLimit, setCompostLimit] = useState(systemConfig.compostYieldCycleLimit);
   const [banners, setBanners] = useState<ChallengeBannerItem[]>(systemConfig.banners);
@@ -284,9 +297,67 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             <span>Sign Out</span>
           </button>
         </div>
+
+        {/* Admin Sub-Navigation Bar */}
+        <div className="border-t border-slate-800/90 bg-slate-950/75">
+          <div className="mx-auto max-w-6xl px-4 sm:px-8 py-2.5 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab('system')}
+              className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-colors cursor-pointer ${
+                activeTab === 'system'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'bg-slate-900 text-slate-300 border border-slate-800 hover:text-white'
+              }`}
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>System, Banners &amp; Docs</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('sponsors')}
+              className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-colors cursor-pointer ${
+                activeTab === 'sponsors'
+                  ? 'bg-amber-500 text-slate-950 shadow-sm'
+                  : 'bg-slate-900 text-amber-200 border border-amber-500/35 hover:bg-slate-800'
+              }`}
+            >
+              <Building2 className="w-3.5 h-3.5" />
+              <span>
+                Sponsor Slot Manager (
+                {SPONSOR_SLOT_CATALOG.filter((s) => sponsorSlots[s.slotId]?.active).length}/
+                {SPONSOR_SLOT_CATALOG.length})
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('reports')}
+              className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-colors cursor-pointer ${
+                activeTab === 'reports'
+                  ? 'bg-sky-600 text-white shadow-sm'
+                  : 'bg-slate-900 text-sky-200 border border-sky-500/35 hover:bg-slate-800'
+              }`}
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Sponsor CSV Reports</span>
+            </button>
+          </div>
+        </div>
       </header>
 
       <main className="mx-auto max-w-6xl px-4 sm:px-8 py-6 space-y-6">
+        {activeTab === 'sponsors' ? (
+          <SponsorSlotManagerPanel admin={admin} sponsorSlots={sponsorSlots} />
+        ) : activeTab === 'reports' ? (
+          <SponsorReportPanel
+            sponsorSlots={sponsorSlots}
+            viewerRole="admin"
+            competitionRuns={runs}
+          />
+        ) : (
+        <>
         {/* Top Row: Competition Timer Switch + Compost & Banner Settings */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           {/* Competition Speed Timer Control (Unlocked ONLY for Admin) */}
@@ -801,6 +872,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             </div>
           </div>
         </section>
+        </>
+        )}
       </main>
     </div>
   );

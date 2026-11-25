@@ -66,6 +66,7 @@ export interface GroupedGradeSalesSummary {
   unitsSold: number;
   salesZar: number;
   topItems: string[];
+  producedItems: Array<{ title: string; units: number }>;
 }
 
 export interface GroupedSchoolSummary {
@@ -837,6 +838,7 @@ export function buildLeaderboardSnapshot(params: {
         unitsSold: number;
         salesZar: number;
         itemSales: Map<string, number>;
+        harvestItems: Map<string, number>;
       }
     >;
   }
@@ -872,6 +874,7 @@ export function buildLeaderboardSnapshot(params: {
         unitsSold: 0,
         salesZar: 0,
         itemSales: new Map(),
+        harvestItems: new Map(),
       };
       bucket.grades.set(cleanGrade, gb);
     }
@@ -900,6 +903,14 @@ export function buildLeaderboardSnapshot(params: {
       cluster: bucket.cluster,
     };
   });
+
+  // Attribute harvested crop titles per canonical school + grade
+  for (const b of batches) {
+    const bucket = ensureSchoolBucket(b.schoolName || b.schoolId);
+    const gb = ensureGradeBucket(bucket, b.grade);
+    const cleanItem = b.itemTitle.trim() || 'Garden Harvest';
+    gb.harvestItems.set(cleanItem, (gb.harvestItems.get(cleanItem) ?? 0) + b.quantity);
+  }
 
   // 4. Accumulate grade_sale_events cleanly
   let totalProduceSalesZar = 0;
@@ -938,6 +949,12 @@ export function buildLeaderboardSnapshot(params: {
         .sort((a, z) => gradeIndex(a.grade) - gradeIndex(z.grade))
         .map((gb) => {
           const gMass = formatHarvestMass(gb.harvestUnits);
+          const mergedProduce = new Map<string, number>(gb.harvestItems);
+          for (const [k, v] of gb.itemSales.entries()) {
+            if (!mergedProduce.has(k)) {
+              mergedProduce.set(k, v);
+            }
+          }
           return {
             grade: gb.grade,
             studentCount: gb.studentCount,
@@ -950,6 +967,10 @@ export function buildLeaderboardSnapshot(params: {
               .sort((a, z) => z[1] - a[1])
               .slice(0, 3)
               .map(([name]) => name),
+            producedItems: Array.from(mergedProduce.entries())
+              .sort((a, z) => z[1] - a[1])
+              .slice(0, 6)
+              .map(([title, units]) => ({ title, units })),
           };
         });
 

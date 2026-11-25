@@ -50,6 +50,8 @@ interface WorkshopHudProps {
   jojoLitres: number;
   weatherMode: WeatherMode;
   shadeClothInstalled: boolean;
+  windbreakInstalled: boolean;
+  stormBraceInstalled: boolean;
   tiers: TierSaveState[];
   door3: Door3ProgressState;
   compostYieldsSinceRefresh: number;
@@ -95,6 +97,8 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
   jojoLitres,
   weatherMode,
   shadeClothInstalled,
+  windbreakInstalled,
+  stormBraceInstalled,
   tiers,
   door3,
   compostYieldsSinceRefresh,
@@ -340,9 +344,9 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
                 className="flex items-center gap-1.5 rounded-xl bg-sky-700/90 hover:bg-sky-600 text-white border border-sky-400/70 px-3 py-2 text-xs font-semibold shadow-lg transition-colors cursor-pointer"
               >
                 <Sun className="w-3.5 h-3.5 text-amber-300" />
-                <span>El Niño Defense</span>
+                <span>Weather &amp; Defense</span>
                 <span className="ml-0.5 px-1.5 py-0.5 rounded bg-slate-950/50 text-sky-200 font-mono text-[10px] tabular-nums">
-                  {Math.round(jojoLitres)}L
+                  {WEATHER_FORECASTS[weatherMode].tempLabel.split('·')[0].trim()} · {Math.round(jojoLitres)}L
                 </span>
               </button>
 
@@ -401,7 +405,14 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
             </div>
             <div className="space-y-1.5 max-h-60 overflow-y-auto pr-0.5">
               {tiers.map((t, idx) => {
-                const live = computeTierLiveMetrics(t, nowMs, weatherMode, shadeClothInstalled);
+                const live = computeTierLiveMetrics(
+                  t,
+                  nowMs,
+                  weatherMode,
+                  shadeClothInstalled,
+                  windbreakInstalled,
+                  stormBraceInstalled
+                );
                 const crop = getCropById(t.cropId);
                 return (
                   <div

@@ -20,12 +20,14 @@ import {
   type GradeSaleEventRecord,
   type LeaderboardStudentRecord,
 } from '../firebase/leaderboardService';
+import type { SponsorSlotAssignment } from '../firebase/sponsorService';
 import {
   subscribeToHarvestBatches,
   subscribeToStoreListings,
   type HarvestBatch,
   type StoreListing,
 } from '../firebase/storeService';
+import { SponsorBannerStrip } from './SponsorBannerStrip';
 
 interface LeaderboardModalProps {
   open: boolean;
@@ -37,6 +39,7 @@ interface LeaderboardModalProps {
   currentGrades?: string[];
   harvestBatches?: HarvestBatch[];
   storeListings?: StoreListing[];
+  sponsorSlot?: SponsorSlotAssignment;
 }
 
 type LeaderboardTab = 'students' | 'schools';
@@ -51,6 +54,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
   currentGrades,
   harvestBatches: providedBatches,
   storeListings: providedListings,
+  sponsorSlot,
 }) => {
   const [activeTab, setActiveTab] = useState<LeaderboardTab>('students');
   const [searchTerm, setSearchTerm] = useState('');
@@ -310,6 +314,8 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
       {/* Scrollable Body */}
       <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
         <div className="mx-auto max-w-7xl space-y-4">
+          <SponsorBannerStrip slot={sponsorSlot} slotId="platform_leaderboard" theme="dark" />
+
           {/* Global Totals Band */}
           <section
             aria-label="Leaderboard Overview Totals"
@@ -762,6 +768,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
                               <tr className="border-b border-slate-800/80 text-[10px] font-mono uppercase tracking-wider text-slate-400">
                                 <th className="py-2.5 px-4">Grade</th>
                                 <th className="py-2.5 px-4 text-right">Students</th>
+                                <th className="py-2.5 px-4">Grade Produce Grown &amp; Sold</th>
                                 <th className="py-2.5 px-4 text-right">Harvested</th>
                                 <th className="py-2.5 px-4 text-right">Units Sold</th>
                                 <th className="py-2.5 px-4 text-right">Grade Sales (ZAR)</th>
@@ -778,6 +785,24 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
                                   </td>
                                   <td className="py-2.5 px-4 text-right text-slate-300">
                                     {g.studentCount}
+                                  </td>
+                                  <td className="py-2.5 px-4 font-sans">
+                                    {g.producedItems.length > 0 ? (
+                                      <div className="flex flex-wrap gap-1">
+                                        {g.producedItems.map((item) => (
+                                          <span
+                                            key={item.title}
+                                            className="rounded-md bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-[11px] font-semibold text-emerald-200"
+                                          >
+                                            {item.title} ({item.units})
+                                          </span>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span className="text-[11px] text-slate-500">
+                                        Cultivating in PVC racks
+                                      </span>
+                                    )}
                                   </td>
                                   <td className="py-2.5 px-4 text-right text-emerald-300 font-semibold">
                                     {g.harvestUnits.toLocaleString('en-ZA')} ({g.harvestMassLabel})

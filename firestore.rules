@@ -62,7 +62,9 @@ service cloud.firestore {
         && (!('jojoLitres' in data) || (data.jojoLitres is number && data.jojoLitres >= 0 && data.jojoLitres <= 500))
         && (!('jojoCapacity' in data) || (data.jojoCapacity is number && data.jojoCapacity >= 20 && data.jojoCapacity <= 500))
         && (!('shadeClothInstalled' in data) || data.shadeClothInstalled is bool)
-        && (!('weatherMode' in data) || data.weatherMode in ['normal', 'elnino_watch', 'heatwave'])
+        && (!('windbreakInstalled' in data) || data.windbreakInstalled is bool)
+        && (!('stormBraceInstalled' in data) || data.stormBraceInstalled is bool)
+        && (!('weatherMode' in data) || data.weatherMode in ['normal', 'rain_storm', 'windy', 'elnino_watch', 'heatwave'])
         && (!('litresSaved' in data) || (data.litresSaved is number && data.litresSaved >= 0 && data.litresSaved <= 1000000))
         && (!('foodServings' in data) || (data.foodServings is int && data.foodServings >= 0 && data.foodServings <= 1000000))
         && (!('door3DripBottleType' in data) || data.door3DripBottleType == null || data.door3DripBottleType in ['clear_soda', 'green_sparkling', 'clear_water'])
@@ -109,6 +111,8 @@ service cloud.firestore {
           'jojoLitres',
           'jojoCapacity',
           'shadeClothInstalled',
+          'windbreakInstalled',
+          'stormBraceInstalled',
           'weatherMode',
           'litresSaved',
           'foodServings',
@@ -915,6 +919,70 @@ service cloud.firestore {
         && data.soldAtMs >= 0;
     }
 
+    function isValidSponsorSlotDoc(data, pathId) {
+      return data.keys().hasAll([
+          'slotId',
+          'room',
+          'targetKey',
+          'label',
+          'displayMode',
+          'partnerName',
+          'tagline',
+          'accentHex',
+          'bgHex',
+          'logoDataUrl',
+          'active',
+          'actionTokenId',
+          'updatedByAdminName',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'slotId',
+          'room',
+          'targetKey',
+          'label',
+          'displayMode',
+          'partnerName',
+          'tagline',
+          'accentHex',
+          'bgHex',
+          'logoDataUrl',
+          'active',
+          'actionTokenId',
+          'updatedByAdminName',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidDocId(data.slotId)
+        && data.slotId == pathId
+        && data.room in ['kitchen', 'garden', 'compost', 'platform']
+        && data.targetKey is string
+        && data.targetKey.size() >= 2
+        && data.targetKey.size() <= 80
+        && data.label is string
+        && data.label.size() >= 2
+        && data.label.size() <= 80
+        && data.displayMode in ['text', 'logo', 'both']
+        && data.partnerName is string
+        && data.partnerName.size() <= 60
+        && data.tagline is string
+        && data.tagline.size() <= 90
+        && data.accentHex is string
+        && data.accentHex.matches('^#[0-9a-fA-F]{6}$')
+        && data.bgHex is string
+        && data.bgHex.matches('^#[0-9a-fA-F]{6}$')
+        && data.logoDataUrl is string
+        && data.logoDataUrl.size() <= 190000
+        && data.active is bool
+        && isValidDocId(data.actionTokenId)
+        && data.updatedByAdminName is string
+        && data.updatedByAdminName.size() >= 1
+        && data.updatedByAdminName.size() <= 40
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
     // Connection probe document (single get only, no list or writes)
     match /test/connection {
       allow get: if request.time != null;
@@ -945,6 +1013,8 @@ service cloud.firestore {
           'jojoLitres',
           'jojoCapacity',
           'shadeClothInstalled',
+          'windbreakInstalled',
+          'stormBraceInstalled',
           'weatherMode',
           'litresSaved',
           'foodServings',
@@ -1227,6 +1297,38 @@ service cloud.firestore {
         && isValidGradeSaleEventDoc(incoming(), saleId)
         && incoming().soldAt == request.time;
       allow update, delete: if false;
+    }
+
+    // Admin-managed Sponsor Slot Manager assignments across Kitchen, Garden, Compost, Platform
+    match /sponsor_slots/{slotId} {
+      allow get, list: if request.time != null;
+      allow create: if isValidDocId(slotId)
+        && isValidSponsorSlotDoc(incoming(), slotId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && hasFreshAdminWriteToken(incoming().actionTokenId);
+      allow update: if isValidDocId(slotId)
+        && isValidSponsorSlotDoc(incoming(), slotId)
+        && incoming().slotId == existing().slotId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'room',
+          'targetKey',
+          'label',
+          'displayMode',
+          'partnerName',
+          'tagline',
+          'accentHex',
+          'bgHex',
+          'logoDataUrl',
+          'active',
+          'actionTokenId',
+          'updatedByAdminName',
+          'updatedAt'
+        ])
+        && hasFreshAdminWriteToken(incoming().actionTokenId);
+      allow delete: if false;
     }
   }
 }

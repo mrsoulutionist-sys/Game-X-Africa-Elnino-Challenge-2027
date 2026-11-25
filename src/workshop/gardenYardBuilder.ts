@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {
+  WEATHER_FORECASTS,
   computeTierLiveMetrics,
   getCropById,
   type CanopyStyle,
@@ -8,13 +9,20 @@ import {
 } from './crops';
 import type { AABB } from './kitchenRoomBuilder';
 import type { WorkshopMaterials } from './materials';
-import { buildGardenSignage } from './sponsorSignage';
+import {
+  buildGardenSignage,
+  createPropBrandPlaque,
+  type DynamicSponsorController,
+} from './sponsorSignage';
+import { createWeatherFxSystem } from './weatherFx';
 
 export interface GardenResilienceState {
   jojoInstalled: boolean;
   jojoLitres: number;
   jojoCapacity: number;
   shadeClothInstalled: boolean;
+  windbreakInstalled: boolean;
+  stormBraceInstalled: boolean;
   weatherMode: WeatherMode;
 }
 
@@ -33,7 +41,7 @@ export interface GardenYardHandle {
     cutawayMode: boolean,
     resilience?: GardenResilienceState
   ) => void;
-  update: (time: number, nowMs: number) => void;
+  update: (dt: number, time: number, nowMs: number) => void;
   dispose: () => void;
 }
 
@@ -126,15 +134,20 @@ function createPlantCanopyMesh(
 
 export function buildGardenYard(
   mats: WorkshopMaterials,
-  maxAnisotropy = 4
+  maxAnisotropy = 4,
+  sponsorController?: DynamicSponsorController
 ): GardenYardHandle {
   const group = new THREE.Group();
   const colliders: AABB[] = [];
   const disposables: Array<{ dispose: () => void }> = [];
 
-  const signage = buildGardenSignage(maxAnisotropy, mats);
+  const signage = buildGardenSignage(maxAnisotropy, mats, sponsorController);
   group.add(signage.group);
   disposables.push({ dispose: signage.dispose });
+
+  const weatherFx = createWeatherFxSystem();
+  group.add(weatherFx.group);
+  disposables.push({ dispose: weatherFx.dispose });
 
   // 1. Stone Courtyard Patio + Perimeter Grass Borders
   const patioMat = new THREE.MeshStandardMaterial({
@@ -376,13 +389,39 @@ export function buildGardenYard(
   gaugeWaterPivot.add(gaugeWaterBar);
   jojoInstalledGroup.add(gaugeWaterPivot);
 
-  const jojoSignTex = createGardenSignTexture('JOJO TANK', 'RAINWATER HARVEST', '#38bdf8');
-  disposables.push(jojoSignTex);
-  const jojoSignMat = new THREE.MeshBasicMaterial({ map: jojoSignTex });
-  disposables.push(jojoSignMat);
-  const jojoSign = new THREE.Mesh(new THREE.PlaneGeometry(0.86, 0.27), jojoSignMat);
-  jojoSign.position.set(0, 1.56, 0);
-  jojoRoot.add(jojoSign);
+  if (sponsorController) {
+    const jojoTopPlaque = createPropBrandPlaque({
+      controller: sponsorController,
+      slotId: 'garden_jojo',
+      width: 0.92,
+      height: 0.3,
+      mats,
+      maxAnisotropy,
+      disposables,
+    });
+    jojoTopPlaque.position.set(0, 1.58, 0);
+    jojoRoot.add(jojoTopPlaque);
+
+    const jojoChestPlaque = createPropBrandPlaque({
+      controller: sponsorController,
+      slotId: 'garden_jojo',
+      width: 0.56,
+      height: 0.22,
+      mats,
+      maxAnisotropy,
+      disposables,
+    });
+    jojoChestPlaque.position.set(0.14, 0.78, 0.48);
+    jojoInstalledGroup.add(jojoChestPlaque);
+  } else {
+    const jojoSignTex = createGardenSignTexture('JOJO TANK', 'RAINWATER HARVEST', '#38bdf8');
+    disposables.push(jojoSignTex);
+    const jojoSignMat = new THREE.MeshBasicMaterial({ map: jojoSignTex });
+    disposables.push(jojoSignMat);
+    const jojoSign = new THREE.Mesh(new THREE.PlaneGeometry(0.86, 0.27), jojoSignMat);
+    jojoSign.position.set(0, 1.56, 0);
+    jojoRoot.add(jojoSign);
+  }
 
   // 4. Solar El Niño Weather Forecast Mast (x = -2.25, z = -1.75)
   const weatherRoot = new THREE.Group();
@@ -424,13 +463,27 @@ export function buildGardenYard(
   }
   weatherRoot.add(anemometerGroup);
 
-  const weatherSignTex = createGardenSignTexture('EL NIÑO RADAR', 'FORECAST STATION', '#fbbf24');
-  disposables.push(weatherSignTex);
-  const weatherSignMat = new THREE.MeshBasicMaterial({ map: weatherSignTex });
-  disposables.push(weatherSignMat);
-  const weatherSign = new THREE.Mesh(new THREE.PlaneGeometry(0.88, 0.28), weatherSignMat);
-  weatherSign.position.set(0, 1.15, 0.06);
-  weatherRoot.add(weatherSign);
+  if (sponsorController) {
+    const weatherPlaque = createPropBrandPlaque({
+      controller: sponsorController,
+      slotId: 'garden_weather_mast',
+      width: 0.94,
+      height: 0.3,
+      mats,
+      maxAnisotropy,
+      disposables,
+    });
+    weatherPlaque.position.set(0, 1.15, 0.06);
+    weatherRoot.add(weatherPlaque);
+  } else {
+    const weatherSignTex = createGardenSignTexture('EL NIÑO RADAR', 'FORECAST STATION', '#fbbf24');
+    disposables.push(weatherSignTex);
+    const weatherSignMat = new THREE.MeshBasicMaterial({ map: weatherSignTex });
+    disposables.push(weatherSignMat);
+    const weatherSign = new THREE.Mesh(new THREE.PlaneGeometry(0.88, 0.28), weatherSignMat);
+    weatherSign.position.set(0, 1.15, 0.06);
+    weatherRoot.add(weatherSign);
+  }
 
   // 5. Centerpiece Modular Vertical Hydroponic Stand (at x = 0, z = -0.85)
   const rackRoot = new THREE.Group();
@@ -447,6 +500,124 @@ export function buildGardenYard(
   rackRoot.add(rackBeacon);
   disposables.push(rackBeacon.material as THREE.Material);
 
+  if (sponsorController) {
+    // Windbreak & Storm Defense Kit sign beside the rack
+    const kitPost = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.024, 0.028, 0.96, 8),
+      mats.darkMetalMat
+    );
+    kitPost.position.set(1.36, 0.48, 0.05);
+    rackRoot.add(kitPost);
+
+    const stormKitPlaque = createPropBrandPlaque({
+      controller: sponsorController,
+      slotId: 'garden_storm_kit',
+      width: 0.72,
+      height: 0.26,
+      mats,
+      maxAnisotropy,
+      disposables,
+    });
+    stormKitPlaque.position.set(1.36, 0.96, 0.07);
+    rackRoot.add(stormKitPlaque);
+  }
+
+  // Windbreak Netting Screen Group & Storm Brace + Rain Diverter Group
+  const windbreakGroup = new THREE.Group();
+  const windbreakNetMat = new THREE.MeshStandardMaterial({
+    color: 0x166534,
+    roughness: 0.85,
+    transparent: true,
+    opacity: 0.56,
+    side: THREE.DoubleSide,
+  });
+  disposables.push(windbreakNetMat);
+  [
+    [-1.18, 0.65, -0.12],
+    [1.18, 0.65, -0.12],
+    [-1.18, 0.65, -0.82],
+    [1.18, 0.65, -0.82],
+  ].forEach(([px, py, pz]) => {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.024, 1.35, 8), mats.stainlessMat);
+    pole.position.set(px, py, pz);
+    windbreakGroup.add(pole);
+  });
+  // Side & rear woven windbreak panels
+  const leftScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.76, 1.18), windbreakNetMat);
+  leftScreen.position.set(-1.18, 0.66, -0.47);
+  leftScreen.rotation.y = Math.PI * 0.5;
+  windbreakGroup.add(leftScreen);
+
+  const rightScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.76, 1.18), windbreakNetMat);
+  rightScreen.position.set(1.18, 0.66, -0.47);
+  rightScreen.rotation.y = Math.PI * 0.5;
+  windbreakGroup.add(rightScreen);
+
+  const backScreen = new THREE.Mesh(new THREE.PlaneGeometry(2.36, 1.18), windbreakNetMat);
+  backScreen.position.set(0, 0.66, -0.82);
+  windbreakGroup.add(backScreen);
+
+  windbreakGroup.visible = false;
+  rackRoot.add(windbreakGroup);
+
+  const stormBraceGroup = new THREE.Group();
+  [
+    [-0.96, 0.42, 0.46, -0.38, 0.46],
+    [0.96, 0.42, 0.46, 0.38, 0.46],
+    [-0.96, 0.42, -0.58, -0.38, -0.58],
+    [0.96, 0.42, -0.58, 0.38, -0.58],
+  ].forEach(([gx, gy, gz, rotZ, _unused]) => {
+    const peg = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.015, 0.16, 8), mats.brassMat);
+    peg.position.set(gx, 0.08, gz);
+    stormBraceGroup.add(peg);
+    const strap = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.94, 6), mats.stainlessMat);
+    strap.position.set(gx * 0.85, gy, gz * 0.72);
+    strap.rotation.z = rotZ;
+    stormBraceGroup.add(strap);
+  });
+  // JoJo Tank Rainwater Gutter Diverter Pipe running overhead into JoJo Lid
+  const gutterPipe = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 1.65, 10), mats.pvcMat);
+  gutterPipe.position.set(1.38, 1.48, -0.45);
+  gutterPipe.rotation.z = 0.22;
+  gutterPipe.rotation.y = -0.48;
+  stormBraceGroup.add(gutterPipe);
+
+  stormBraceGroup.visible = false;
+  rackRoot.add(stormBraceGroup);
+
+  // Persistent sponsor plaque objects stored separately from clearDynamicRack disposal
+  const rackCrownPlaque = sponsorController
+    ? createPropBrandPlaque({
+        controller: sponsorController,
+        slotId: 'garden_rack',
+        width: 1.12,
+        height: 0.32,
+        mats,
+        maxAnisotropy,
+        disposables,
+      })
+    : null;
+  if (rackCrownPlaque) {
+    rackCrownPlaque.position.set(0, 1.38, -0.11);
+    rackRoot.add(rackCrownPlaque);
+  }
+
+  const shadePlaque = sponsorController
+    ? createPropBrandPlaque({
+        controller: sponsorController,
+        slotId: 'garden_shade_cloth',
+        width: 1.18,
+        height: 0.24,
+        mats,
+        maxAnisotropy,
+        disposables,
+      })
+    : null;
+  if (shadePlaque) {
+    shadePlaque.visible = false;
+    rackRoot.add(shadePlaque);
+  }
+
   const dynamicRackGroup = new THREE.Group();
   rackRoot.add(dynamicRackGroup);
 
@@ -462,6 +633,8 @@ export function buildGardenYard(
   let cachedRackSig = '';
   let activeWeatherMode: WeatherMode = 'normal';
   let activeShadeCloth = false;
+  let activeWindbreak = false;
+  let activeStormBrace = false;
 
   const clearDynamicRack = () => {
     while (dynamicRackGroup.children.length > 0) {
@@ -487,10 +660,17 @@ export function buildGardenYard(
     const jojoLitres = resilience?.jojoLitres ?? 18;
     const jojoCapacity = resilience?.jojoCapacity ?? 60;
     const shadeClothInstalled = resilience?.shadeClothInstalled ?? false;
+    const windbreakInstalled = resilience?.windbreakInstalled ?? false;
+    const stormBraceInstalled = resilience?.stormBraceInstalled ?? false;
     const weatherMode = resilience?.weatherMode ?? 'normal';
 
     activeWeatherMode = weatherMode;
     activeShadeCloth = shadeClothInstalled;
+    activeWindbreak = windbreakInstalled;
+    activeStormBrace = stormBraceInstalled;
+
+    windbreakGroup.visible = windbreakInstalled;
+    stormBraceGroup.visible = stormBraceInstalled;
 
     // Update live JoJo tank visibility & sight gauge without rebuilding the rack
     jojoGhost.visible = !jojoInstalled;
@@ -503,12 +683,24 @@ export function buildGardenYard(
     if (weatherMode === 'heatwave') {
       weatherDomeMat.color.setHex(0xef4444);
       weatherDomeMat.emissive.setHex(0xdc2626);
-    } else if (weatherMode === 'elnino_watch') {
+    } else if (weatherMode === 'elnino_watch' || weatherMode === 'windy') {
       weatherDomeMat.color.setHex(0xf59e0b);
       weatherDomeMat.emissive.setHex(0xd97706);
+    } else if (weatherMode === 'rain_storm') {
+      weatherDomeMat.color.setHex(0x38bdf8);
+      weatherDomeMat.emissive.setHex(0x0284c7);
     } else {
       weatherDomeMat.color.setHex(0x10b981);
       weatherDomeMat.emissive.setHex(0x059669);
+    }
+
+    const topHeightPreview = 0.45 + (clampedSize - 1) * 0.31 + 0.25;
+    if (rackCrownPlaque) {
+      rackCrownPlaque.position.set(0, topHeightPreview + 0.12, -0.11);
+    }
+    if (shadePlaque) {
+      shadePlaque.visible = shadeClothInstalled;
+      shadePlaque.position.set(0, topHeightPreview + 0.34, 0.51);
     }
 
     const sig = JSON.stringify({
@@ -747,16 +939,30 @@ export function buildGardenYard(
     }
   };
 
-  const update = (time: number, nowMs: number) => {
+  const update = (dt: number, time: number, nowMs: number) => {
     const pulseScale = 1 + Math.sin(time * 3.8) * 0.03;
     rackBeacon.scale.set(pulseScale, pulseScale, 1);
 
-    const windSpeed =
-      activeWeatherMode === 'heatwave' ? 6.5 : activeWeatherMode === 'elnino_watch' ? 4.2 : 1.8;
+    const forecast = WEATHER_FORECASTS[activeWeatherMode] ?? WEATHER_FORECASTS.normal;
+    const windSpeed = forecast.windSpeedMult * 3.2;
     anemometerGroup.rotation.y = time * windSpeed;
 
+    weatherFx.update(dt, time, activeWeatherMode, activeWindbreak, activeStormBrace);
+
+    const swayDamp =
+      (activeWindbreak ? 0.38 : 1.0) * (activeStormBrace ? 0.72 : 1.0);
+    const leafSwayAmp = Math.min(0.14, 0.025 + forecast.windSpeedMult * 0.038 * swayDamp);
+    const leafSwayFreq = 1.4 + forecast.windSpeedMult * 1.9;
+
     tierVisuals.forEach((tv, idx) => {
-      const live = computeTierLiveMetrics(tv.tier, nowMs, activeWeatherMode, activeShadeCloth);
+      const live = computeTierLiveMetrics(
+        tv.tier,
+        nowMs,
+        activeWeatherMode,
+        activeShadeCloth,
+        activeWindbreak,
+        activeStormBrace
+      );
 
       if (live.waterPct > 0) {
         tv.waterGroup.visible = true;
@@ -777,7 +983,7 @@ export function buildGardenYard(
         const s = 0.12 + (live.growthPct / 100) * 0.92;
         tv.sprouts.forEach((sp, sidx) => {
           sp.scale.set(s, s, s);
-          sp.rotation.z = Math.sin(time * 1.4 + sidx + idx) * 0.035;
+          sp.rotation.z = Math.sin(time * leafSwayFreq + sidx + idx) * leafSwayAmp;
         });
       }
 

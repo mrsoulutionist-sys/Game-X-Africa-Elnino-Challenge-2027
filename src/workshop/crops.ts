@@ -11,41 +11,109 @@ export type CropId =
   | 'cowpea';
 
 export type CanopyStyle = 'rosette' | 'upright' | 'herb' | 'broad';
-export type WeatherMode = 'normal' | 'elnino_watch' | 'heatwave';
+export type WeatherMode = 'normal' | 'rain_storm' | 'windy' | 'elnino_watch' | 'heatwave';
+
+export const WEATHER_MODE_ORDER: WeatherMode[] = [
+  'normal',
+  'rain_storm',
+  'windy',
+  'elnino_watch',
+  'heatwave',
+];
 
 export interface WeatherForecastMeta {
   id: WeatherMode;
   label: string;
   tempLabel: string;
   evapMultiplier: number;
+  windSpeedMult: number;
+  rainIntensity: number;
   rainAllowed: boolean;
+  badgeHex: string;
   tip: string;
+  precautions: string[];
 }
 
 export const WEATHER_FORECASTS: Record<WeatherMode, WeatherForecastMeta> = {
   normal: {
     id: 'normal',
     label: 'Normal Season',
-    tempLabel: '24°C · Rains',
+    tempLabel: '24°C · Calm',
     evapMultiplier: 1.0,
+    windSpeedMult: 0.45,
+    rainIntensity: 0,
     rainAllowed: true,
-    tip: 'Harvest rainwater into your JoJo tank & install shade cloth before El Niño arrives.',
+    badgeHex: '#38bdf8',
+    tip: 'Ideal baseline conditions. Harvest JoJo water and pre-check shade cloth & windbreaks.',
+    precautions: [
+      'Check capillary wicks hang freely into pipe reservoirs.',
+      'Pre-fill JoJo tank before seasonal weather shifts arrive.',
+      'Inspect compost bin aeration and moisture.',
+    ],
+  },
+  rain_storm: {
+    id: 'rain_storm',
+    label: 'Rain & Storm',
+    tempLabel: '19°C · Heavy Squall',
+    evapMultiplier: 0.55,
+    windSpeedMult: 1.75,
+    rainIntensity: 1.0,
+    rainAllowed: true,
+    badgeHex: '#60a5fa',
+    tip: 'Heavy storm squalls! Capture free rainwater via JoJo gutter diverter and latch storm anchor straps.',
+    precautions: [
+      'Install Storm Anchor Tie-Downs so vertical PVC tiers stay locked against gusts.',
+      'Open the JoJo Gutter Diverter to harvest free stormwater (+28 L surge).',
+      'Check Door 3 mulch collar & drainage so compost nutrients are not washed away.',
+    ],
+  },
+  windy: {
+    id: 'windy',
+    label: 'High Berg Winds',
+    tempLabel: '29°C · 55 km/h Gusts',
+    evapMultiplier: 1.48,
+    windSpeedMult: 2.3,
+    rainIntensity: 0,
+    rainAllowed: false,
+    badgeHex: '#f59e0b',
+    tip: 'Dry berg winds strip moisture off leaves fast! Deploy Windbreak Netting to cut wind shear & evaporation.',
+    precautions: [
+      'Deploy Woven Windbreak Netting around the rack (-55% wind shear & leaf bruising).',
+      'Add Door 3 Cardboard Mulch Collars to lock reservoir & root moisture.',
+      'Favor sturdy broad-leaf crops (Morogo, Kale, Spinach) with low center of gravity.',
+    ],
   },
   elnino_watch: {
     id: 'elnino_watch',
     label: 'El Niño Watch',
-    tempLabel: '32°C · Dry Wind',
+    tempLabel: '32°C · Dry Heat',
     evapMultiplier: 1.35,
+    windSpeedMult: 1.15,
+    rainIntensity: 0,
     rainAllowed: true,
-    tip: 'Hot berg winds incoming! Top up your JoJo tank & deploy heat-hardy crops now.',
+    badgeHex: '#fb923c',
+    tip: 'Hot dry air incoming! Top up your JoJo tank, install 40% Shade Cloth & pick heat-hardy greens.',
+    precautions: [
+      'Pull 40% Agricultural Shade Cloth over the rack (-35% evaporation).',
+      'Install 2L Door 3 Drip-Feeders beside outdoor root beds.',
+      'Keep JoJo reserve above 30 L before Level restrictions start.',
+    ],
   },
   heatwave: {
     id: 'heatwave',
     label: '38°C Heatwave',
     tempLabel: '38°C · L4 Water Cap',
     evapMultiplier: 2.0,
+    windSpeedMult: 0.95,
+    rainIntensity: 0,
     rainAllowed: false,
-    tip: 'Municipal water restricted! Shade cloth & closed PVC wicking save 75% water.',
+    badgeHex: '#ef4444',
+    tip: 'Municipal water restricted! 40% Shade Cloth + closed PVC wicking + mulch save 75% water.',
+    precautions: [
+      'Engage 40% Shade Cloth immediately to shield crops from 38°C scorching.',
+      'Water only from stored JoJo reserves — zero municipal hose waste.',
+      'Keep compost layer active so plants stay vigorous without heat stress.',
+    ],
   },
 };
 
@@ -252,7 +320,9 @@ export function computeTierLiveMetrics(
   tier: TierSaveState,
   nowMs: number,
   weatherMode: WeatherMode = 'normal',
-  shadeClothInstalled = false
+  shadeClothInstalled = false,
+  windbreakInstalled = false,
+  stormBraceInstalled = false
 ): TierLiveMetrics {
   if (!tier.pipeInstalled) {
     return {
@@ -272,7 +342,16 @@ export function computeTierLiveMetrics(
 
   const crop = getCropById(tier.cropId);
   const baseWaterDuration = crop ? crop.waterDurationHours : tier.waterDurationHours || 84;
-  const evapMult = WEATHER_FORECASTS[weatherMode].evapMultiplier * (shadeClothInstalled ? 0.65 : 1.0);
+  const forecast = WEATHER_FORECASTS[weatherMode] ?? WEATHER_FORECASTS.normal;
+  let mitigation = 1.0;
+  if (shadeClothInstalled) mitigation *= 0.65;
+  if (windbreakInstalled && (weatherMode === 'windy' || weatherMode === 'elnino_watch')) {
+    mitigation *= 0.72;
+  }
+  if (stormBraceInstalled && weatherMode === 'rain_storm') {
+    mitigation *= 0.85;
+  }
+  const evapMult = forecast.evapMultiplier * mitigation;
   const effectiveWaterMs = (baseWaterDuration / evapMult) * 3600000;
 
   let waterPctExact = 0;

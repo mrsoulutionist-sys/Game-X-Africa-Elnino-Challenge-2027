@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import type { ParentProfile } from '../firebase/firebaseClient';
+import type { SponsorSlotAssignment } from '../firebase/sponsorService';
 import {
   checkoutStoreBasket,
   loadWalletCredit,
@@ -35,6 +36,7 @@ import {
   type AdoptedPet,
   type PetId,
 } from './petData';
+import { SponsorBannerStrip } from './SponsorBannerStrip';
 import { StoreClerkPanel, type ClerkQuickFilter } from './StoreClerkPanel';
 
 interface GradeProduceStoreProps {
@@ -46,6 +48,7 @@ interface GradeProduceStoreProps {
   harvestBatches: HarvestBatch[];
   scores14d: Student14DayScore[];
   recentOrders: StoreOrder[];
+  sponsorSlot?: SponsorSlotAssignment;
   onWalletUpdated: (nextBalanceZar: number) => void;
   onPetsUpdated: (nextPets: AdoptedPet[]) => void;
 }
@@ -101,6 +104,7 @@ export const GradeProduceStore: React.FC<GradeProduceStoreProps> = ({
   harvestBatches,
   scores14d,
   recentOrders,
+  sponsorSlot,
   onWalletUpdated,
   onPetsUpdated,
 }) => {
@@ -304,6 +308,8 @@ export const GradeProduceStore: React.FC<GradeProduceStoreProps> = ({
       aria-label="School Produce and Pet Care Store"
       className="space-y-5"
     >
+      <SponsorBannerStrip slot={sponsorSlot} slotId="platform_store" />
+
       {/* Top Wallet + Store Header Card */}
       <div className="rounded-2xl border border-[#001489]/25 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">

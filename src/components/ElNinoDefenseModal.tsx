@@ -1,15 +1,24 @@
 import React from 'react';
 import {
+  Anchor,
   CheckCircle2,
+  CloudLightning,
   CloudRain,
   Droplets,
+  Flame,
   Recycle,
+  ShieldAlert,
   ShieldCheck,
   Sprout,
   Sun,
+  Wind,
   X,
 } from 'lucide-react';
-import { WEATHER_FORECASTS, type WeatherMode } from '../workshop/crops';
+import {
+  WEATHER_FORECASTS,
+  WEATHER_MODE_ORDER,
+  type WeatherMode,
+} from '../workshop/crops';
 
 interface ElNinoDefenseModalProps {
   open: boolean;
@@ -17,6 +26,8 @@ interface ElNinoDefenseModalProps {
   jojoLitres: number;
   jojoCapacity: number;
   shadeClothInstalled: boolean;
+  windbreakInstalled: boolean;
+  stormBraceInstalled: boolean;
   weatherMode: WeatherMode;
   litresSaved: number;
   compostCycleCount: number;
@@ -24,10 +35,20 @@ interface ElNinoDefenseModalProps {
   onInstallJojo: () => void;
   onRefillJojo: () => void;
   onToggleShadeCloth: () => void;
-  onAdvanceWeather: () => void;
+  onToggleWindbreak: () => void;
+  onToggleStormBrace: () => void;
+  onSelectWeatherMode: (mode: WeatherMode) => void;
   onOpenRackManager: () => void;
   onSwitchToCompost: () => void;
 }
+
+const WEATHER_ICONS: Record<WeatherMode, React.ComponentType<{ className?: string }>> = {
+  normal: Sun,
+  rain_storm: CloudLightning,
+  windy: Wind,
+  elnino_watch: Flame,
+  heatwave: Flame,
+};
 
 export const ElNinoDefenseModal: React.FC<ElNinoDefenseModalProps> = ({
   open,
@@ -35,6 +56,8 @@ export const ElNinoDefenseModal: React.FC<ElNinoDefenseModalProps> = ({
   jojoLitres,
   jojoCapacity,
   shadeClothInstalled,
+  windbreakInstalled,
+  stormBraceInstalled,
   weatherMode,
   litresSaved,
   compostCycleCount,
@@ -42,7 +65,9 @@ export const ElNinoDefenseModal: React.FC<ElNinoDefenseModalProps> = ({
   onInstallJojo,
   onRefillJojo,
   onToggleShadeCloth,
-  onAdvanceWeather,
+  onToggleWindbreak,
+  onToggleStormBrace,
+  onSelectWeatherMode,
   onOpenRackManager,
   onSwitchToCompost,
 }) => {
@@ -50,21 +75,29 @@ export const ElNinoDefenseModal: React.FC<ElNinoDefenseModalProps> = ({
 
   const weather = WEATHER_FORECASTS[weatherMode];
   const jojoPct = Math.round((jojoLitres / Math.max(1, jojoCapacity)) * 100);
-  const readyForHeatwave = jojoInstalled && shadeClothInstalled && jojoLitres >= 12;
+
+  const isRecommendedComplete =
+    weatherMode === 'rain_storm'
+      ? stormBraceInstalled && jojoInstalled
+      : weatherMode === 'windy'
+        ? windbreakInstalled && jojoInstalled
+        : weatherMode === 'heatwave' || weatherMode === 'elnino_watch'
+          ? shadeClothInstalled && jojoInstalled && jojoLitres >= 12
+          : jojoInstalled;
 
   return (
     <div className="fixed inset-0 z-40 bg-slate-950/80 flex items-center justify-center p-3 sm:p-5">
-      <div className="relative w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl bg-slate-950 border border-sky-500/40 shadow-2xl overflow-hidden">
+      <div className="relative w-full max-w-3xl max-h-[90vh] flex flex-col rounded-2xl bg-slate-950 border border-sky-500/40 shadow-2xl overflow-hidden">
         {/* Header */}
         <div className="flex items-start justify-between gap-3 px-5 py-3.5 border-b border-slate-800 bg-slate-900/70">
           <div>
             <div className="text-[11px] font-mono uppercase tracking-wider text-sky-400 font-semibold flex flex-wrap items-center gap-x-3 gap-y-0.5">
-              <span>El Niño Climate Defense Hub</span>
+              <span>Live 3D Weather &amp; Climate Precautions Hub</span>
               <span className="text-emerald-300">Water Saved: {Math.round(litresSaved)} L</span>
               <span className="text-amber-300">Compost Cycles: {compostCycleCount}</span>
             </div>
             <h2 className="text-base sm:text-lg font-bold text-white mt-0.5">
-              JoJo Tank, 40% Shade Cloth &amp; Drought Forecast
+              Real-Time 3D Weather Scenarios &amp; Garden Precautions
             </h2>
           </div>
           <button
@@ -79,40 +112,101 @@ export const ElNinoDefenseModal: React.FC<ElNinoDefenseModalProps> = ({
 
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
-          {/* Drought Readiness Status Banner */}
-          <div
-            className={`rounded-xl border p-3.5 flex flex-wrap items-center justify-between gap-2 text-xs ${
-              readyForHeatwave
-                ? 'bg-emerald-950/50 border-emerald-500/45 text-emerald-100'
-                : 'bg-amber-950/40 border-amber-500/40 text-amber-100'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              {readyForHeatwave ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              ) : (
-                <Droplets className="w-4 h-4 text-amber-300 shrink-0" />
-              )}
-              <span>
-                {readyForHeatwave
-                  ? 'Heatwave Defense Active: JoJo reserve + 40% shade canopy are shielding your vertical rack.'
-                  : 'Preemptive Tip: Build your JoJo rainwater tank and install 40% shade cloth before testing heatwave mode.'}
+          {/* 5-Scenario Live 3D Weather Switcher */}
+          <section className="rounded-xl border border-slate-800 bg-slate-900/80 p-3.5 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-[11px] font-mono uppercase tracking-wider text-amber-300 font-bold">
+                  Select Live 3D Weather Scenario
+                </div>
+                <p className="text-xs text-slate-300 mt-0.5">
+                  Switching weather updates 3D sky, rain, lightning, wind gust animation &amp; crop evaporation right away.
+                </p>
+              </div>
+              <span
+                style={{ borderColor: weather.badgeHex, color: weather.badgeHex }}
+                className="font-mono text-xs font-bold px-2.5 py-1 rounded-lg bg-slate-950 border shrink-0"
+              >
+                {weather.tempLabel}
               </span>
             </div>
-            <span className="font-mono text-[11px] font-bold uppercase px-2 py-0.5 rounded bg-slate-950/70 border border-slate-700/80">
-              {weather.tempLabel}
-            </span>
-          </div>
 
-          {/* 3 El Niño Defense Station Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+              {WEATHER_MODE_ORDER.map((modeKey) => {
+                const meta = WEATHER_FORECASTS[modeKey];
+                const Icon = WEATHER_ICONS[modeKey];
+                const active = weatherMode === modeKey;
+                return (
+                  <button
+                    key={modeKey}
+                    type="button"
+                    onClick={() => onSelectWeatherMode(modeKey)}
+                    className={`rounded-xl border px-2.5 py-2 text-left transition-colors cursor-pointer flex flex-col gap-1 ${
+                      active
+                        ? 'bg-sky-950/90 border-sky-400 text-white shadow-sm'
+                        : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-600'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <Icon className="w-3.5 h-3.5 shrink-0" />
+                      <span className="text-[9px] font-mono uppercase text-slate-400">
+                        {meta.evapMultiplier.toFixed(1)}x evap
+                      </span>
+                    </div>
+                    <span className="text-xs font-bold leading-tight">{meta.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Active Scenario Precautions Guidance */}
+            <div
+              className={`rounded-xl border p-3.5 text-xs space-y-2 ${
+                isRecommendedComplete
+                  ? 'bg-emerald-950/45 border-emerald-500/45 text-emerald-100'
+                  : 'bg-amber-950/40 border-amber-500/40 text-amber-100'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2 font-bold">
+                  {isRecommendedComplete ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  ) : (
+                    <ShieldAlert className="w-4 h-4 text-amber-300 shrink-0" />
+                  )}
+                  <span>
+                    {isRecommendedComplete
+                      ? `Scenario Precautions Ready for ${weather.label}`
+                      : `Recommended Precautions for ${weather.label}`}
+                  </span>
+                </div>
+                <span className="font-mono text-[10px] uppercase text-slate-300 shrink-0">
+                  Wind {weather.windSpeedMult.toFixed(1)}x
+                </span>
+              </div>
+
+              <p className="text-xs leading-relaxed opacity-95">{weather.tip}</p>
+
+              <ul className="space-y-1 pt-1 border-t border-white/10">
+                {weather.precautions.map((item) => (
+                  <li key={item} className="flex items-start gap-2 text-[11px] leading-snug">
+                    <Droplets className="w-3.5 h-3.5 text-sky-300 shrink-0 mt-0.5" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
+
+          {/* 4 Interactive 3D Precaution Equipment Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {/* 1. JoJo Rainwater Harvesting Tank */}
             <div className="rounded-xl bg-slate-900 border border-slate-800 p-3.5 flex flex-col justify-between">
               <div>
                 <div className="flex items-center justify-between gap-1.5">
                   <span className="text-xs font-bold text-sky-300 flex items-center gap-1.5">
                     <CloudRain className="w-4 h-4" />
-                    JoJo Tank
+                    JoJo Rainwater Tank
                   </span>
                   <span className="text-xs font-mono text-white tabular-nums">
                     {jojoInstalled
@@ -127,7 +221,7 @@ export const ElNinoDefenseModal: React.FC<ElNinoDefenseModalProps> = ({
                   />
                 </div>
                 <p className="mt-2 text-[11px] text-slate-400 leading-snug">
-                  Stores seasonal rain so Level 4 water restrictions never dry out your hydroponic pipes.
+                  Stores seasonal rain &amp; storm runoff so municipal drought restrictions never dry out your PVC reservoirs.
                 </p>
               </div>
               <div className="mt-3">
@@ -147,16 +241,20 @@ export const ElNinoDefenseModal: React.FC<ElNinoDefenseModalProps> = ({
                     className={`w-full py-2 px-3 rounded-lg text-xs font-semibold transition-colors ${
                       jojoLitres >= jojoCapacity
                         ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                        : weather.rainAllowed
-                          ? 'bg-sky-600 hover:bg-sky-500 text-white cursor-pointer'
-                          : 'bg-amber-600 hover:bg-amber-500 text-white cursor-pointer'
+                        : weatherMode === 'rain_storm'
+                          ? 'bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold cursor-pointer'
+                          : weather.rainAllowed
+                            ? 'bg-sky-600 hover:bg-sky-500 text-white cursor-pointer'
+                            : 'bg-amber-600 hover:bg-amber-500 text-white cursor-pointer'
                     }`}
                   >
                     {jojoLitres >= jojoCapacity
                       ? 'Tank Full (60 L)'
-                      : weather.rainAllowed
-                        ? 'Catch Rain (+20 L)'
-                        : 'Dew Recovery (+6 L)'}
+                      : weatherMode === 'rain_storm'
+                        ? 'Harvest Storm Surge (+28 L)'
+                        : weather.rainAllowed
+                          ? 'Catch Rain (+20 L)'
+                          : 'Dew Recovery (+6 L)'}
                   </button>
                 )}
               </div>
@@ -168,14 +266,14 @@ export const ElNinoDefenseModal: React.FC<ElNinoDefenseModalProps> = ({
                 <div className="flex items-center justify-between gap-1.5">
                   <span className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
                     <ShieldCheck className="w-4 h-4" />
-                    Shade Cloth
+                    40% Shade Cloth
                   </span>
                   <span className="text-xs font-mono text-slate-300">
-                    {shadeClothInstalled ? '-35% Evap' : 'Exposed'}
+                    {shadeClothInstalled ? '-35% Heat Evap' : 'Unshaded'}
                   </span>
                 </div>
                 <p className="mt-2 text-[11px] text-slate-400 leading-snug">
-                  40% agricultural shade cloth cools leaves during 38°C afternoon peaks and extends wicking water reserve.
+                  Renders 40% dark UV canopy directly over the rack in 3D, cooling leaves through 38°C afternoon El Niño peaks.
                 </p>
               </div>
               <button
@@ -187,35 +285,65 @@ export const ElNinoDefenseModal: React.FC<ElNinoDefenseModalProps> = ({
                     : 'bg-emerald-600 hover:bg-emerald-500 text-white'
                 }`}
               >
-                {shadeClothInstalled ? 'Shade Cloth Active' : 'Install 40% Shade'}
+                {shadeClothInstalled ? 'Shade Cloth Deployed (On)' : 'Deploy 40% Shade Canopy'}
               </button>
             </div>
 
-            {/* 3. Solar El Niño Weather Forecast */}
+            {/* 3. Woven Windbreak Netting */}
             <div className="rounded-xl bg-slate-900 border border-slate-800 p-3.5 flex flex-col justify-between">
               <div>
                 <div className="flex items-center justify-between gap-1.5">
-                  <span
-                    className={`text-xs font-bold flex items-center gap-1.5 ${
-                      weatherMode === 'heatwave'
-                        ? 'text-rose-400'
-                        : weatherMode === 'elnino_watch'
-                          ? 'text-amber-300'
-                          : 'text-emerald-300'
-                    }`}
-                  >
-                    <Sun className="w-4 h-4" />
-                    {weather.label}
+                  <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                    <Wind className="w-4 h-4" />
+                    Woven Windbreak Netting
+                  </span>
+                  <span className="text-xs font-mono text-slate-300">
+                    {windbreakInstalled ? '-55% Leaf Shear' : 'Exposed'}
                   </span>
                 </div>
-                <p className="mt-2 text-[11px] text-slate-400 leading-snug">{weather.tip}</p>
+                <p className="mt-2 text-[11px] text-slate-400 leading-snug">
+                  Installs dark green windbreak screens around the rack perimeter in 3D, slowing berg-wind leaf sway &amp; moisture loss.
+                </p>
               </div>
               <button
                 type="button"
-                onClick={onAdvanceWeather}
-                className="mt-3 w-full py-2 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-200 border border-amber-500/35 text-xs font-semibold cursor-pointer"
+                onClick={onToggleWindbreak}
+                className={`mt-3 w-full py-2 px-3 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                  windbreakInstalled
+                    ? 'bg-amber-700/80 hover:bg-amber-600 text-amber-100 border border-amber-400/40'
+                    : 'bg-amber-600 hover:bg-amber-500 text-white'
+                }`}
               >
-                Test Next Forecast
+                {windbreakInstalled ? 'Windbreak Screens On' : 'Install Windbreak Netting'}
+              </button>
+            </div>
+
+            {/* 4. Storm Anchors & JoJo Gutter Diverter */}
+            <div className="rounded-xl bg-slate-900 border border-slate-800 p-3.5 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between gap-1.5">
+                  <span className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+                    <Anchor className="w-4 h-4" />
+                    Storm Anchors &amp; Gutter Pipe
+                  </span>
+                  <span className="text-xs font-mono text-slate-300">
+                    {stormBraceInstalled ? 'Braced + Surge' : 'Unbraced'}
+                  </span>
+                </div>
+                <p className="mt-2 text-[11px] text-slate-400 leading-snug">
+                  Mounts steel tie-down straps on rack posts and connects the JoJo roof gutter diverter to catch stormwater automatically.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onToggleStormBrace}
+                className={`mt-3 w-full py-2 px-3 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                  stormBraceInstalled
+                    ? 'bg-cyan-700/80 hover:bg-cyan-600 text-cyan-100 border border-cyan-400/40'
+                    : 'bg-cyan-600 hover:bg-cyan-500 text-white'
+                }`}
+              >
+                {stormBraceInstalled ? 'Storm Brace & Diverter Active' : 'Latch Storm Anchors + Diverter'}
               </button>
             </div>
           </div>

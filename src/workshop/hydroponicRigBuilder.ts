@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { workshopAudio } from './audio';
 import type { WorkshopMaterials } from './materials';
+import {
+  createPropBrandPlaque,
+  type DynamicSponsorController,
+} from './sponsorSignage';
 import type { BuildStepId } from './steps';
 
 export type RigActionAnim = 'none' | 'wicking' | 'pouring';
@@ -33,12 +37,31 @@ const PIPE_RADIUS = 0.068;
 const CUT_X_POSITIONS = [-0.56, 0.58];
 const PORT_X_POSITIONS = [-0.42, -0.14, 0.14, 0.42];
 
-export function buildHydroponicRig(mats: WorkshopMaterials): HydroponicRigHandle {
+export function buildHydroponicRig(
+  mats: WorkshopMaterials,
+  maxAnisotropy = 4,
+  sponsorController?: DynamicSponsorController
+): HydroponicRigHandle {
   const group = new THREE.Group();
   const portSubstrateMats: THREE.MeshStandardMaterial[] = [];
   const portWickMats: THREE.MeshStandardMaterial[] = [];
   const disposableGeoms: THREE.BufferGeometry[] = [];
   const disposableMats: THREE.Material[] = [];
+
+  if (sponsorController) {
+    const pvcPlaqueFront = createPropBrandPlaque({
+      controller: sponsorController,
+      slotId: 'kitchen_pvc_piping',
+      width: 0.44,
+      height: 0.15,
+      mats,
+      maxAnisotropy,
+      disposables: disposableMats,
+    });
+    pvcPlaqueFront.position.set(0, BENCH_TOP_Y + 0.055, 0.33);
+    pvcPlaqueFront.rotation.x = -0.35;
+    group.add(pvcPlaqueFront);
+  }
 
   // --------------------------------------------------------------------------
   // 1. Raw Stock Layout + Manual Cut Targets (Step 2)

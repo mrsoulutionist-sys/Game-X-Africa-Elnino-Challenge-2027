@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
+  FileSpreadsheet,
   FileText,
   GraduationCap,
   Lock,
@@ -20,6 +21,7 @@ import {
   type AdminDocumentRecord,
 } from '../firebase/adminService';
 import { SUPPORTER_ROLES, type ParentProfile } from '../firebase/firebaseClient';
+import type { SponsorSlotAssignment } from '../firebase/sponsorService';
 import {
   compute14DayStudentScores,
   ensureStarterCareListings,
@@ -38,15 +40,21 @@ import { GradeProduceStore } from './GradeProduceStore';
 import { LeaderboardModal } from './LeaderboardModal';
 import { computePetAlerts, loadParentAdoptedPets, type AdoptedPet } from './petData';
 import { PetSanctuary } from './PetSanctuary';
+import { SponsorReportPanel } from './SponsorReportPanel';
 
 interface ParentPortalProps {
   profile: ParentProfile;
+  sponsorSlots: Record<string, SponsorSlotAssignment>;
   onLogout: () => void;
 }
 
-type PortalView = 'sanctuary' | 'store';
+type PortalView = 'sanctuary' | 'store' | 'reports';
 
-export const ParentPortal: React.FC<ParentPortalProps> = ({ profile, onLogout }) => {
+export const ParentPortal: React.FC<ParentPortalProps> = ({
+  profile,
+  sponsorSlots,
+  onLogout,
+}) => {
   const [activeView, setActiveView] = useState<PortalView>('sanctuary');
   const [adoptedPets, setAdoptedPets] = useState<AdoptedPet[]>([]);
   const [loadingPets, setLoadingPets] = useState(true);
@@ -340,6 +348,23 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ profile, onLogout })
                       : 'Grade Produce Store (Adopt Pet to Unlock)'}
                 </span>
               </button>
+
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeView === 'reports'}
+                onClick={() => setActiveView('reports')}
+                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition-colors cursor-pointer ${
+                  activeView === 'reports'
+                    ? 'bg-[#FFB81C] text-[#1E293B] shadow-sm'
+                    : profile.role === 'sponsor'
+                      ? 'bg-[#FFF7E0] text-[#92400E] border border-[#FFB81C] hover:bg-[#FEF0C7]'
+                      : 'bg-[#FBF8F1] text-[#1E293B] border border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <FileSpreadsheet className="h-4 w-4" />
+                <span>Sponsor Reports (CSV)</span>
+              </button>
             </div>
 
             {petAlerts.length > 0 && activeView === 'sanctuary' && (
@@ -360,13 +385,21 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ profile, onLogout })
 
       {/* Main Content */}
       <main className="mx-auto w-full max-w-6xl space-y-5 px-4 py-4 sm:px-8 sm:py-5">
-        {activeView === 'sanctuary' ? (
+        {activeView === 'reports' ? (
+          <SponsorReportPanel
+            sponsorSlots={sponsorSlots}
+            viewerRole={profile.role}
+            harvestBatches={harvestBatches}
+            storeListings={listings}
+          />
+        ) : activeView === 'sanctuary' ? (
           <>
             {/* Segment 1: Interactive South African Herbivore Pet Sanctuary */}
             <PetSanctuary
               profile={profile}
               adoptedPets={adoptedPets}
               loadingPets={loadingPets}
+              sponsorSlot={sponsorSlots['platform_sanctuary']}
               onPetsUpdated={setAdoptedPets}
               onOpenProduceStore={openOrFocusStore}
             />
@@ -486,6 +519,7 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ profile, onLogout })
                   harvestBatches={harvestBatches}
                   scores14d={scores14d}
                   recentOrders={recentOrders}
+                  sponsorSlot={sponsorSlots['platform_store']}
                   onWalletUpdated={setWalletBalanceZar}
                   onPetsUpdated={setAdoptedPets}
                 />
@@ -529,6 +563,7 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ profile, onLogout })
             harvestBatches={harvestBatches}
             scores14d={scores14d}
             recentOrders={recentOrders}
+            sponsorSlot={sponsorSlots['platform_store']}
             onWalletUpdated={setWalletBalanceZar}
             onPetsUpdated={setAdoptedPets}
           />
@@ -549,6 +584,7 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ profile, onLogout })
         currentGrades={profile.grades}
         harvestBatches={harvestBatches}
         storeListings={listings}
+        sponsorSlot={sponsorSlots['platform_leaderboard']}
       />
     </div>
   );

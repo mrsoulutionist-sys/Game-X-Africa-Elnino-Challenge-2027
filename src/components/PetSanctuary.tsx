@@ -18,7 +18,9 @@ import {
   X,
 } from 'lucide-react';
 import type { ParentProfile } from '../firebase/firebaseClient';
+import type { SponsorSlotAssignment } from '../firebase/sponsorService';
 import { PetIllustration, VeldHabitatBackdrop } from './PetArtwork';
+import { SponsorBannerStrip } from './SponsorBannerStrip';
 import {
   computeEffectivePetStats,
   computePetAlerts,
@@ -45,6 +47,7 @@ interface PetSanctuaryProps {
   profile: ParentProfile;
   adoptedPets: AdoptedPet[];
   loadingPets: boolean;
+  sponsorSlot?: SponsorSlotAssignment;
   onPetsUpdated: (nextPets: AdoptedPet[]) => void;
   onOpenProduceStore?: () => void;
 }
@@ -53,6 +56,7 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
   profile,
   adoptedPets,
   loadingPets,
+  sponsorSlot,
   onPetsUpdated,
   onOpenProduceStore,
 }) => {
@@ -322,6 +326,12 @@ export const PetSanctuary: React.FC<PetSanctuaryProps> = ({
           </button>
         </div>
       </div>
+
+      {sponsorSlot?.active && (
+        <div className="mx-5 mt-4 sm:mx-6">
+          <SponsorBannerStrip slot={sponsorSlot} slotId="platform_sanctuary" />
+        </div>
+      )}
 
       {sanctuaryError && (
         <div className="mx-5 mt-4 rounded-xl border border-[#E03C31]/40 bg-[#E03C31]/10 px-4 py-3 text-sm font-medium text-[#991B1B] sm:mx-6">

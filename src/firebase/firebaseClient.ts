@@ -86,6 +86,8 @@ export interface FarmerProfile {
   jojoLitres: number;
   jojoCapacity: number;
   shadeClothInstalled: boolean;
+  windbreakInstalled: boolean;
+  stormBraceInstalled: boolean;
   weatherMode: WeatherMode;
   litresSaved: number;
   foodServings: number;
@@ -225,7 +227,13 @@ const VALID_KITCHEN_STEPS: Set<BuildStepId> = new Set([
   'COMPLETE',
 ]);
 
-const VALID_WEATHER_MODES: Set<WeatherMode> = new Set(['normal', 'elnino_watch', 'heatwave']);
+const VALID_WEATHER_MODES: Set<WeatherMode> = new Set([
+  'normal',
+  'rain_storm',
+  'windy',
+  'elnino_watch',
+  'heatwave',
+]);
 const VALID_DRIP_BOTTLES: Set<DripBottleType> = new Set([
   'clear_soda',
   'green_sparkling',
@@ -511,6 +519,8 @@ export async function loginOrCreateFarmer(
       jojoLitres,
       jojoCapacity,
       shadeClothInstalled: Boolean(data.shadeClothInstalled),
+      windbreakInstalled: Boolean(data.windbreakInstalled),
+      stormBraceInstalled: Boolean(data.stormBraceInstalled),
       weatherMode,
       litresSaved: typeof data.litresSaved === 'number' ? Math.max(0, data.litresSaved) : 0,
       foodServings:
@@ -558,6 +568,8 @@ export async function loginOrCreateFarmer(
     jojoLitres: 18,
     jojoCapacity: 60,
     shadeClothInstalled: false,
+    windbreakInstalled: false,
+    stormBraceInstalled: false,
     weatherMode: 'normal',
     litresSaved: 0,
     foodServings: 0,
@@ -747,6 +759,8 @@ export async function saveFarmerProgress(profile: FarmerProfile): Promise<void> 
       jojoLitres: Math.max(0, Math.min(jojoCapacity, Math.round(profile.jojoLitres * 10) / 10)),
       jojoCapacity,
       shadeClothInstalled: Boolean(profile.shadeClothInstalled),
+      windbreakInstalled: Boolean(profile.windbreakInstalled),
+      stormBraceInstalled: Boolean(profile.stormBraceInstalled),
       weatherMode: VALID_WEATHER_MODES.has(profile.weatherMode) ? profile.weatherMode : 'normal',
       litresSaved: Math.max(0, Math.min(1000000, Math.round(profile.litresSaved * 10) / 10)),
       foodServings: Math.max(0, Math.min(1000000, Math.round(profile.foodServings))),

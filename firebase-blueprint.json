@@ -57,10 +57,18 @@
           "type": "boolean",
           "description": "Whether the 40% agricultural shade-cloth canopy is installed over the vertical rack."
         },
+        "windbreakInstalled": {
+          "type": "boolean",
+          "description": "Whether woven agricultural windbreak netting is deployed around the garden rack."
+        },
+        "stormBraceInstalled": {
+          "type": "boolean",
+          "description": "Whether storm anchor straps and the JoJo gutter diverter are latched for heavy rain."
+        },
         "weatherMode": {
           "type": "string",
-          "description": "Current simulated El Nino weather forecast phase.",
-          "enum": ["normal", "elnino_watch", "heatwave"]
+          "description": "Current simulated El Nino / real-time weather forecast phase.",
+          "enum": ["normal", "rain_storm", "windy", "elnino_watch", "heatwave"]
         },
         "litresSaved": {
           "type": "number",
@@ -473,6 +481,29 @@
         "soldAtMs": { "type": "integer" }
       },
       "required": ["saleId", "orderId", "listingId", "schoolId", "schoolName", "grade", "itemTitle", "sourceType", "unitsSold", "amountZar", "soldAt", "soldAtMs"]
+    },
+    "SponsorSlot": {
+      "title": "SponsorSlot",
+      "description": "Admin-assigned sponsor branding slot mapped to a room (kitchen, garden, compost, platform), prop/panel target, display mode (text, logo, or both), and optional compressed image data URL.",
+      "type": "object",
+      "properties": {
+        "slotId": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "room": { "type": "string", "enum": ["kitchen", "garden", "compost", "platform"] },
+        "targetKey": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "label": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "displayMode": { "type": "string", "enum": ["text", "logo", "both"] },
+        "partnerName": { "type": "string", "maxLength": 60 },
+        "tagline": { "type": "string", "maxLength": 90 },
+        "accentHex": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+        "bgHex": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+        "logoDataUrl": { "type": "string", "maxLength": 190000 },
+        "active": { "type": "boolean" },
+        "actionTokenId": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "updatedByAdminName": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["slotId", "room", "targetKey", "label", "displayMode", "partnerName", "tagline", "accentHex", "bgHex", "logoDataUrl", "active", "actionTokenId", "updatedByAdminName", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -571,6 +602,12 @@
         "$ref": "#/entities/GradeSaleEvent"
       },
       "description": "Append-only anonymized sale telemetry written during atomic store checkout for live school and per-grade sales aggregation."
+    },
+    "/sponsor_slots/{slotId}": {
+      "schema": {
+        "$ref": "#/entities/SponsorSlot"
+      },
+      "description": "Modular sponsor brand slots across Kitchen, Garden, Compost, and Platform surfaces managed via Admin write tokens."
     }
   }
 }

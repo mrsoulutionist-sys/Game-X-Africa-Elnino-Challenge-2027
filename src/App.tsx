@@ -41,6 +41,10 @@ import {
   type StudentLoginMetadata,
 } from './firebase/firebaseClient';
 import {
+  subscribeToSponsorSlots,
+  type SponsorSlotAssignment,
+} from './firebase/sponsorService';
+import {
   recordStudentHarvest,
   syncStudentActiveGrows,
 } from './firebase/storeService';
@@ -90,6 +94,8 @@ function toResilienceState(profile: FarmerProfile): GardenResilienceState {
     jojoLitres: profile.jojoLitres,
     jojoCapacity: profile.jojoCapacity,
     shadeClothInstalled: profile.shadeClothInstalled,
+    windbreakInstalled: profile.windbreakInstalled,
+    stormBraceInstalled: profile.stormBraceInstalled,
     weatherMode: profile.weatherMode,
   };
 }
@@ -116,6 +122,8 @@ export function App() {
 
   const [systemConfig, setSystemConfig] = useState<SystemConfigState>(DEFAULT_SYSTEM_CONFIG);
   const [adminDocs, setAdminDocs] = useState<AdminDocumentRecord[]>([]);
+  const [sponsorSlots, setSponsorSlots] = useState<Record<string, SponsorSlotAssignment>>({});
+  const sponsorSlotsRef = useRef<Record<string, SponsorSlotAssignment>>({});
   const [docsModalOpen, setDocsModalOpen] = useState(false);
   const [competitionStartMs, setCompetitionStartMs] = useState<number | null>(null);
   const [competitionElapsedMs, setCompetitionElapsedMs] = useState(0);
@@ -147,11 +155,18 @@ export function App() {
   }, [competitionStartMs]);
 
   useEffect(() => {
+    sponsorSlotsRef.current = sponsorSlots;
+    sceneRef.current?.updateSponsorSlots(sponsorSlots);
+  }, [sponsorSlots]);
+
+  useEffect(() => {
     const unsubConfig = subscribeToSystemConfig((next) => setSystemConfig(next));
     const unsubDocs = subscribeToAdminDocuments((docs) => setAdminDocs(docs));
+    const unsubSponsors = subscribeToSponsorSlots((slots) => setSponsorSlots(slots));
     return () => {
       unsubConfig();
       unsubDocs();
+      unsubSponsors();
     };
   }, []);
 
@@ -312,6 +327,7 @@ export function App() {
       },
     });
     sceneRef.current = scene;
+    scene.updateSponsorSlots(sponsorSlotsRef.current);
 
     return () => {
       unsubVoiceover();
@@ -351,7 +367,9 @@ export function App() {
           t,
           nowMs,
           farmerProfile.weatherMode,
-          farmerProfile.shadeClothInstalled
+          farmerProfile.shadeClothInstalled,
+          farmerProfile.windbreakInstalled,
+          farmerProfile.stormBraceInstalled
         ).harvestReady
     );
     if (anyHarvestReady) {
@@ -787,7 +805,12 @@ export function App() {
   const handleRefillJojo = useCallback(() => {
     workshopAudio.playSinkFill();
     persistProfileUpdate((prev) => {
-      const gain = prev.weatherMode === 'heatwave' ? 6 : 20;
+      const gain =
+        prev.weatherMode === 'rain_storm'
+          ? 28
+          : prev.weatherMode === 'heatwave' || prev.weatherMode === 'windy'
+            ? 6
+            : 20;
       const nextProfile: FarmerProfile = {
         ...prev,
         jojoLitres: Math.min(prev.jojoCapacity, prev.jojoLitres + gain),
@@ -815,36 +838,93 @@ export function App() {
     });
   }, [persistProfileUpdate]);
 
-  const handleAdvanceWeather = useCallback(() => {
-    const order: WeatherMode[] = ['normal', 'elnino_watch', 'heatwave'];
+  const handleToggleWindbreak = useCallback(() => {
+    workshopAudio.playPickup();
     persistProfileUpdate((prev) => {
-      const idx = order.indexOf(prev.weatherMode);
-      const nextMode = order[(idx + 1) % order.length];
+      const nextInstalled = !prev.windbreakInstalled;
       const nextProfile: FarmerProfile = {
         ...prev,
-        weatherMode: nextMode,
+        windbreakInstalled: nextInstalled,
       };
       sceneRef.current?.syncGardenTiers(prev.rackSize, prev.tiers, toResilienceState(nextProfile));
-
-      if (nextMode === 'elnino_watch') {
+      if (nextInstalled) {
         workshopVoiceover.speakCustom(
-          'El Niño Watch issued! Temperatures are rising to 32 degrees. Preempt the drought by building your JoJo tank and installing shade cloth now.'
-        );
-      } else if (nextMode === 'heatwave') {
-        const prepared = prev.jojoInstalled && prev.shadeClothInstalled && prev.jojoLitres >= 12;
-        workshopVoiceover.speakCustom(
-          prepared
-            ? '38°C Heatwave and Level 4 water caps just hit—but you prepared early! Your JoJo reserve, shade cloth, and wicks keep crops thriving.'
-            : '38°C Heatwave and Level 4 water caps! Notice evaporation doubled without full JoJo storage and shade cloth—preemptive engineering is key.'
-        );
-      } else {
-        workshopVoiceover.speakCustom(
-          'Seasonal rains have returned! Catch rainwater into your JoJo tank before the next El Niño dry cycle.'
+          'Woven windbreak netting deployed around the rack! It cuts berg wind shear and stops dry gusts from stripping leaf moisture.'
         );
       }
       return nextProfile;
     });
   }, [persistProfileUpdate]);
+
+  const handleToggleStormBrace = useCallback(() => {
+    workshopAudio.playPickup();
+    persistProfileUpdate((prev) => {
+      const nextInstalled = !prev.stormBraceInstalled;
+      const nextProfile: FarmerProfile = {
+        ...prev,
+        stormBraceInstalled: nextInstalled,
+      };
+      sceneRef.current?.syncGardenTiers(prev.rackSize, prev.tiers, toResilienceState(nextProfile));
+      if (nextInstalled) {
+        workshopVoiceover.speakCustom(
+          'Storm anchor straps latched and JoJo gutter diverter connected! Your rack stays rigid in squalls and channels stormwater straight into your tank.'
+        );
+      }
+      return nextProfile;
+    });
+  }, [persistProfileUpdate]);
+
+  const handleSelectWeatherMode = useCallback(
+    (nextMode: WeatherMode) => {
+      workshopAudio.playPickup();
+      persistProfileUpdate((prev) => {
+        const bonusLitres =
+          nextMode === 'rain_storm' && prev.stormBraceInstalled && prev.jojoInstalled ? 28 : 0;
+        const nextProfile: FarmerProfile = {
+          ...prev,
+          weatherMode: nextMode,
+          jojoLitres: Math.min(prev.jojoCapacity, prev.jojoLitres + bonusLitres),
+          litresSaved: prev.litresSaved + bonusLitres,
+        };
+        sceneRef.current?.syncGardenTiers(
+          prev.rackSize,
+          prev.tiers,
+          toResilienceState(nextProfile)
+        );
+
+        if (nextMode === 'rain_storm') {
+          workshopVoiceover.speakCustom(
+            prev.stormBraceInstalled
+              ? 'Rain and storm squall arrived! Your storm anchors lock the rack and your gutter diverter harvested stormwater into your JoJo tank.'
+              : 'Heavy rain and storm squall! Latch Storm Anchors and open your JoJo gutter diverter to protect the rack and catch free stormwater.'
+          );
+        } else if (nextMode === 'windy') {
+          workshopVoiceover.speakCustom(
+            prev.windbreakInstalled
+              ? 'High 55 km/h berg winds are blowing, but your woven windbreak netting shields your crops from moisture loss!'
+              : 'High berg winds incoming! Install Woven Windbreak Netting and Door 3 Mulch Collars to stop leaves from drying out.'
+          );
+        } else if (nextMode === 'elnino_watch') {
+          workshopVoiceover.speakCustom(
+            'El Niño Watch issued! Temperatures are rising to 32 degrees. Preempt the drought by building your JoJo tank and installing shade cloth now.'
+          );
+        } else if (nextMode === 'heatwave') {
+          const prepared = prev.jojoInstalled && prev.shadeClothInstalled && prev.jojoLitres >= 12;
+          workshopVoiceover.speakCustom(
+            prepared
+              ? '38°C Heatwave and Level 4 water caps just hit—but you prepared early! Your JoJo reserve, shade cloth, and wicks keep crops thriving.'
+              : '38°C Heatwave and Level 4 water caps! Notice evaporation doubled without full JoJo storage and shade cloth—preemptive engineering is key.'
+          );
+        } else {
+          workshopVoiceover.speakCustom(
+            'Calm 24-degree seasonal weather! Great time to build pipes, refresh compost, and pre-fill your JoJo reserve.'
+          );
+        }
+        return nextProfile;
+      });
+    },
+    [persistProfileUpdate]
+  );
 
   const handleUpdateDoor3 = useCallback(
     (
@@ -1010,6 +1090,8 @@ export function App() {
             jojoLitres={farmerProfile.jojoLitres}
             weatherMode={farmerProfile.weatherMode}
             shadeClothInstalled={farmerProfile.shadeClothInstalled}
+            windbreakInstalled={farmerProfile.windbreakInstalled}
+            stormBraceInstalled={farmerProfile.stormBraceInstalled}
             tiers={farmerProfile.tiers}
             door3={farmerProfile.door3}
             compostYieldsSinceRefresh={farmerProfile.compostYieldsSinceRefresh}
@@ -1139,7 +1221,11 @@ export function App() {
 
       {/* Isolated Parent / Sponsor Portal */}
       {parentProfile && (
-        <ParentPortal profile={parentProfile} onLogout={handleLogout} />
+        <ParentPortal
+          profile={parentProfile}
+          sponsorSlots={sponsorSlots}
+          onLogout={handleLogout}
+        />
       )}
 
       {/* Isolated Admin Control Center */}
@@ -1147,6 +1233,7 @@ export function App() {
         <AdminPortal
           admin={adminProfile}
           systemConfig={systemConfig}
+          sponsorSlots={sponsorSlots}
           onLogout={handleLogout}
         />
       )}
@@ -1174,6 +1261,8 @@ export function App() {
           totalHarvestedCount={farmerProfile.totalHarvestedCount}
           jojoLitres={farmerProfile.jojoLitres}
           shadeClothInstalled={farmerProfile.shadeClothInstalled}
+          windbreakInstalled={farmerProfile.windbreakInstalled}
+          stormBraceInstalled={farmerProfile.stormBraceInstalled}
           weatherMode={farmerProfile.weatherMode}
           litresSaved={farmerProfile.litresSaved}
           foodServings={farmerProfile.foodServings}
@@ -1196,7 +1285,7 @@ export function App() {
         />
       )}
 
-      {/* Separate El Niño Defense Hub (JoJo Tank, 40% Shade Cloth & Forecast) */}
+      {/* Separate Live 3D Weather & Precautions Hub */}
       {farmerProfile && (
         <ElNinoDefenseModal
           open={elNinoHubOpen}
@@ -1204,6 +1293,8 @@ export function App() {
           jojoLitres={farmerProfile.jojoLitres}
           jojoCapacity={farmerProfile.jojoCapacity}
           shadeClothInstalled={farmerProfile.shadeClothInstalled}
+          windbreakInstalled={farmerProfile.windbreakInstalled}
+          stormBraceInstalled={farmerProfile.stormBraceInstalled}
           weatherMode={farmerProfile.weatherMode}
           litresSaved={farmerProfile.litresSaved}
           compostCycleCount={farmerProfile.compostCycleCount}
@@ -1211,7 +1302,9 @@ export function App() {
           onInstallJojo={handleInstallJojo}
           onRefillJojo={handleRefillJojo}
           onToggleShadeCloth={handleToggleShadeCloth}
-          onAdvanceWeather={handleAdvanceWeather}
+          onToggleWindbreak={handleToggleWindbreak}
+          onToggleStormBrace={handleToggleStormBrace}
+          onSelectWeatherMode={handleSelectWeatherMode}
           onOpenRackManager={() => {
             setNowMs(Date.now());
             setElNinoHubOpen(false);
@@ -1248,6 +1341,7 @@ export function App() {
           currentStudentUid={farmerProfile.farmerKey}
           currentSchoolName={farmerProfile.schoolName}
           currentGrade={farmerProfile.grade}
+          sponsorSlot={sponsorSlots['platform_leaderboard']}
         />
       )}
 

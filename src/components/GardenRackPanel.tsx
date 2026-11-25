@@ -30,6 +30,8 @@ interface GardenRackPanelProps {
   totalHarvestedCount: number;
   jojoLitres: number;
   shadeClothInstalled: boolean;
+  windbreakInstalled: boolean;
+  stormBraceInstalled: boolean;
   weatherMode: WeatherMode;
   litresSaved: number;
   foodServings: number;
@@ -82,6 +84,8 @@ export const GardenRackPanel: React.FC<GardenRackPanelProps> = ({
   totalHarvestedCount,
   jojoLitres,
   shadeClothInstalled,
+  windbreakInstalled,
+  stormBraceInstalled,
   weatherMode,
   litresSaved,
   foodServings,
@@ -223,7 +227,14 @@ export const GardenRackPanel: React.FC<GardenRackPanelProps> = ({
         {/* Tier List with Expandable Real-Time Crop Progress Dropdowns */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3">
           {tiers.map((tier, idx) => {
-            const live = computeTierLiveMetrics(tier, nowMs, weatherMode, shadeClothInstalled);
+            const live = computeTierLiveMetrics(
+              tier,
+              nowMs,
+              weatherMode,
+              shadeClothInstalled,
+              windbreakInstalled,
+              stormBraceInstalled
+            );
             const crop = getCropById(tier.cropId);
             const isPickingSeed = plantingTier === idx && !compostNeedsRefresh;
             const isExpanded = expandedTier === idx;

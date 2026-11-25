@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { ActiveZone } from '../firebase/firebaseClient';
+import type { SponsorSlotAssignment } from '../firebase/sponsorService';
 import { workshopAudio } from './audio';
 import {
   buildCompostStation,
@@ -24,6 +25,7 @@ import {
 import { buildHydroponicRig, type HydroponicRigHandle } from './hydroponicRigBuilder';
 import { buildKitchenWorkshopRoom, type AABB, type KitchenRoomHandle } from './kitchenRoomBuilder';
 import { createWorkshopMaterials, type WorkshopMaterials } from './materials';
+import { DynamicSponsorController } from './sponsorSignage';
 import { BUILD_STEPS, type BuildStepId, type GradeTier, type ToolId } from './steps';
 import { workshopVoiceover } from './voiceover';
 
@@ -90,6 +92,10 @@ export class KitchenWorkshopScene {
   private pmremGenerator!: THREE.PMREMGenerator;
   private envRenderTarget!: THREE.WebGLRenderTarget;
   private mats!: WorkshopMaterials;
+  private sponsorController!: DynamicSponsorController;
+  private hemiLight!: THREE.HemisphereLight;
+  private sunLight!: THREE.DirectionalLight;
+  private fillLight!: THREE.DirectionalLight;
   private room!: KitchenRoomHandle;
   private rig!: HydroponicRigHandle;
   private garden!: GardenYardHandle;
@@ -127,6 +133,8 @@ export class KitchenWorkshopScene {
     jojoLitres: 18,
     jojoCapacity: 60,
     shadeClothInstalled: false,
+    windbreakInstalled: false,
+    stormBraceInstalled: false,
     weatherMode: 'normal',
   };
 
@@ -229,25 +237,25 @@ export class KitchenWorkshopScene {
     this.scene.environment = this.envRenderTarget.texture;
     roomEnv.dispose();
 
-    const hemi = new THREE.HemisphereLight(0xdff0ff, 0x6f5a46, 0.78);
-    this.scene.add(hemi);
+    this.hemiLight = new THREE.HemisphereLight(0xdff0ff, 0x6f5a46, 0.78);
+    this.scene.add(this.hemiLight);
 
-    const sunLight = new THREE.DirectionalLight(0xfff5e4, 1.35);
-    sunLight.position.set(-1.9, 4.2, -5.2);
-    sunLight.target.position.set(0, 0.9, 0);
-    this.scene.add(sunLight.target);
+    this.sunLight = new THREE.DirectionalLight(0xfff5e4, 1.35);
+    this.sunLight.position.set(-1.9, 4.2, -5.2);
+    this.sunLight.target.position.set(0, 0.9, 0);
+    this.scene.add(this.sunLight.target);
     if (!this.isSoftwareGl) {
-      sunLight.castShadow = true;
-      sunLight.shadow.mapSize.set(1024, 1024);
-      sunLight.shadow.camera.near = 0.5;
-      sunLight.shadow.camera.far = 16;
-      sunLight.shadow.camera.left = -5;
-      sunLight.shadow.camera.right = 5;
-      sunLight.shadow.camera.top = 5;
-      sunLight.shadow.camera.bottom = -5;
-      sunLight.shadow.bias = -0.0005;
+      this.sunLight.castShadow = true;
+      this.sunLight.shadow.mapSize.set(1024, 1024);
+      this.sunLight.shadow.camera.near = 0.5;
+      this.sunLight.shadow.camera.far = 16;
+      this.sunLight.shadow.camera.left = -5;
+      this.sunLight.shadow.camera.right = 5;
+      this.sunLight.shadow.camera.top = 5;
+      this.sunLight.shadow.camera.bottom = -5;
+      this.sunLight.shadow.bias = -0.0005;
     }
-    this.scene.add(sunLight);
+    this.scene.add(this.sunLight);
 
     [-0.68, 0.68].forEach((px) => {
       const pLight = new THREE.PointLight(0xffdfb0, 2.2, 7.5, 1.5);
@@ -255,23 +263,25 @@ export class KitchenWorkshopScene {
       this.scene.add(pLight);
     });
 
-    const fillLight = new THREE.DirectionalLight(0xd9e8f5, 0.5);
-    fillLight.position.set(2.5, 2.8, 3.6);
-    this.scene.add(fillLight);
+    this.fillLight = new THREE.DirectionalLight(0xd9e8f5, 0.5);
+    this.fillLight.position.set(2.5, 2.8, 3.6);
+    this.scene.add(this.fillLight);
 
     const maxAniso = Math.min(8, this.renderer.capabilities.getMaxAnisotropy() || 1);
     this.mats = createWorkshopMaterials(this.renderer);
-    this.room = buildKitchenWorkshopRoom(this.mats, maxAniso);
+    this.sponsorController = new DynamicSponsorController();
+
+    this.room = buildKitchenWorkshopRoom(this.mats, maxAniso, this.sponsorController);
     this.scene.add(this.room.group);
 
-    this.rig = buildHydroponicRig(this.mats);
+    this.rig = buildHydroponicRig(this.mats, maxAniso, this.sponsorController);
     this.scene.add(this.rig.group);
 
-    this.garden = buildGardenYard(this.mats, maxAniso);
+    this.garden = buildGardenYard(this.mats, maxAniso, this.sponsorController);
     this.garden.group.visible = false;
     this.scene.add(this.garden.group);
 
-    this.compost = buildCompostStation(this.mats, maxAniso);
+    this.compost = buildCompostStation(this.mats, maxAniso, this.sponsorController);
     this.compost.group.visible = false;
     this.scene.add(this.compost.group);
   }
@@ -370,6 +380,12 @@ export class KitchenWorkshopScene {
     this.rig.setStepState(this.stepId, this.cutawayMode);
     this.garden.setGardenState(rackSize, tiers, this.cutawayMode, this.resilience);
     this.compost.setProgress(this.door3Progress);
+    this.compost.setWeatherState(
+      this.resilience.weatherMode,
+      this.resilience.windbreakInstalled,
+      this.resilience.stormBraceInstalled
+    );
+    this.applyWindowAndLightingMood();
     this.switchZone(zone, false);
     this.emitState(true);
 
@@ -388,6 +404,10 @@ export class KitchenWorkshopScene {
     }
   }
 
+  public updateSponsorSlots(slots: Record<string, SponsorSlotAssignment>): void {
+    this.sponsorController.applySlots(slots);
+  }
+
   public syncGardenTiers(
     rackSize: number,
     tiers: TierSaveState[],
@@ -395,6 +415,12 @@ export class KitchenWorkshopScene {
   ): void {
     if (resilience) {
       this.resilience = resilience;
+      this.compost.setWeatherState(
+        resilience.weatherMode,
+        resilience.windbreakInstalled,
+        resilience.stormBraceInstalled
+      );
+      this.applyWindowAndLightingMood();
       if (this.activeZone === 'garden' || this.activeZone === 'compost') {
         this.applyGardenAtmosphere();
       }
@@ -456,15 +482,64 @@ export class KitchenWorkshopScene {
     });
   }
 
+  private applyWindowAndLightingMood(): void {
+    const mode = this.resilience.weatherMode;
+    if (mode === 'rain_storm') {
+      this.mats.windowGlowMat.color.setHex(0x64748b);
+      this.hemiLight.color.setHex(0x94a3b8);
+      this.hemiLight.intensity = 0.65;
+      this.sunLight.color.setHex(0xcbd5e1);
+      this.sunLight.intensity = 0.72;
+    } else if (mode === 'windy') {
+      this.mats.windowGlowMat.color.setHex(0xd4b896);
+      this.hemiLight.color.setHex(0xfde68a);
+      this.hemiLight.intensity = 0.8;
+      this.sunLight.color.setHex(0xfef3c7);
+      this.sunLight.intensity = 1.25;
+    } else if (mode === 'elnino_watch') {
+      this.mats.windowGlowMat.color.setHex(0xe5c391);
+      this.hemiLight.color.setHex(0xfef3c7);
+      this.hemiLight.intensity = 0.82;
+      this.sunLight.color.setHex(0xfde68a);
+      this.sunLight.intensity = 1.45;
+    } else if (mode === 'heatwave') {
+      this.mats.windowGlowMat.color.setHex(0xfdba74);
+      this.hemiLight.color.setHex(0xfed7aa);
+      this.hemiLight.intensity = 0.88;
+      this.sunLight.color.setHex(0xfdba74);
+      this.sunLight.intensity = 1.72;
+    } else {
+      this.mats.windowGlowMat.color.setHex(0xcbe6f8);
+      this.hemiLight.color.setHex(0xdff0ff);
+      this.hemiLight.intensity = 0.78;
+      this.sunLight.color.setHex(0xfff5e4);
+      this.sunLight.intensity = 1.35;
+    }
+  }
+
   private applyGardenAtmosphere(): void {
+    const mode = this.resilience.weatherMode;
     const skyHex =
-      this.resilience.weatherMode === 'heatwave'
-        ? 0xd69f6e
-        : this.resilience.weatherMode === 'elnino_watch'
-          ? 0xb6c5c2
-          : 0x87c3e8;
+      mode === 'rain_storm'
+        ? 0x3b4d63
+        : mode === 'windy'
+          ? 0xc4b08b
+          : mode === 'heatwave'
+            ? 0xd69f6e
+            : mode === 'elnino_watch'
+              ? 0xb6c5c2
+              : 0x87c3e8;
+    const fogDensity =
+      mode === 'rain_storm'
+        ? 0.042
+        : mode === 'heatwave'
+          ? 0.032
+          : mode === 'windy'
+            ? 0.03
+            : 0.022;
     this.scene.background = new THREE.Color(skyHex);
-    this.scene.fog = new THREE.FogExp2(skyHex, this.resilience.weatherMode === 'heatwave' ? 0.032 : 0.024);
+    this.scene.fog = new THREE.FogExp2(skyHex, fogDensity);
+    this.applyWindowAndLightingMood();
   }
 
   public switchZone(zone: ActiveZone, persist = true): void {
@@ -485,6 +560,7 @@ export class KitchenWorkshopScene {
     if (isKitchen) {
       this.scene.background = new THREE.Color(0x212830);
       this.scene.fog = null;
+      this.applyWindowAndLightingMood();
       this.camera.position.set(0, PLAYER_EYE_Y, 2.2);
       this.yaw = 0;
       this.pitch = -0.15;
@@ -1384,12 +1460,20 @@ export class KitchenWorkshopScene {
       this.rig.update(dt, this.worldTime);
     } else if (this.activeZone === 'garden') {
       this.updateGardenProximity();
-      this.garden.update(this.worldTime, Date.now());
+      this.garden.update(dt, this.worldTime, Date.now());
     } else {
       this.updateCompostProximity();
       this.updateManualAimAndTool(dt);
       this.compost.update(dt, this.worldTime);
     }
+
+    // Subtle lightning flash envelope during Rain & Storm
+    if (this.resilience.weatherMode === 'rain_storm' && this.activeZone !== 'kitchen') {
+      const cycle = this.worldTime % 7.5;
+      const flash = cycle < 0.14 ? 1.85 : cycle > 0.22 && cycle < 0.34 ? 1.45 : 0.72;
+      this.sunLight.intensity = flash;
+    }
+
     this.emitState(false);
 
     this.renderer.render(this.scene, this.camera);
@@ -1412,6 +1496,7 @@ export class KitchenWorkshopScene {
     this.renderer.domElement.removeEventListener('webglcontextlost', this.handleContextLost);
     this.renderer.domElement.removeEventListener('webglcontextrestored', this.handleContextRestored);
 
+    this.sponsorController.dispose();
     this.room.dispose();
     this.rig.dispose();
     this.garden.dispose();

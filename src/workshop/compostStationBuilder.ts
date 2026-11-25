@@ -6,9 +6,15 @@ import type {
   DripBottleType,
   MulchMaterialType,
 } from './compostData';
+import type { WeatherMode } from './crops';
 import type { AABB } from './kitchenRoomBuilder';
 import type { WorkshopMaterials } from './materials';
-import { buildCompostSignage } from './sponsorSignage';
+import {
+  buildCompostSignage,
+  createPropBrandPlaque,
+  type DynamicSponsorController,
+} from './sponsorSignage';
+import { createWeatherFxSystem } from './weatherFx';
 
 export type CompostAnchorTarget =
   | 'drip_bench'
@@ -55,6 +61,11 @@ export interface CompostStationHandle {
   startActionAnim: (kind: CompostTimedAnimKind) => void;
   setDoorOpenFactors: (gardenOpen: number, kitchenOpen: number) => void;
   setProgress: (progress: Door3ProgressState) => void;
+  setWeatherState: (
+    weatherMode: WeatherMode,
+    windbreakInstalled: boolean,
+    stormBraceInstalled: boolean
+  ) => void;
   update: (dt: number, time: number) => void;
   dispose: () => void;
 }
@@ -125,16 +136,24 @@ function createPetBottleMesh(
 
 export function buildCompostStation(
   mats: WorkshopMaterials,
-  maxAnisotropy = 4
+  maxAnisotropy = 4,
+  sponsorController?: DynamicSponsorController
 ): CompostStationHandle {
   const group = new THREE.Group();
   const colliders: AABB[] = [];
   const interactableObjects: THREE.Object3D[] = [];
   const disposables: Array<{ dispose: () => void }> = [];
 
-  const signage = buildCompostSignage(maxAnisotropy, mats);
+  const signage = buildCompostSignage(maxAnisotropy, mats, sponsorController);
   group.add(signage.group);
   disposables.push({ dispose: signage.dispose });
+
+  const weatherFx = createWeatherFxSystem();
+  group.add(weatherFx.group);
+  disposables.push({ dispose: weatherFx.dispose });
+  let activeWeatherMode: WeatherMode = 'normal';
+  let activeWindbreak = false;
+  let activeStormBrace = false;
 
   // Materials (zero expensive transmission pass, fast everywhere)
   const paverMat = new THREE.MeshStandardMaterial({ color: 0xa99e8e, roughness: 0.88, metalness: 0.02 });
@@ -364,6 +383,20 @@ export function buildCompostStation(
   ws1Table.castShadow = true;
   ws1Table.receiveShadow = true;
   ws1Group.add(ws1Table);
+
+  if (sponsorController) {
+    const ws1Plaque = createPropBrandPlaque({
+      controller: sponsorController,
+      slotId: 'compost_drip_bench',
+      width: 1.06,
+      height: 0.32,
+      mats,
+      maxAnisotropy,
+      disposables,
+    });
+    ws1Plaque.position.set(0, 0.42, 0.5);
+    ws1Group.add(ws1Plaque);
+  }
 
   // Recycling Shelf with 3 clickable 2L PET bottles
   const shelfBack = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.54, 0.04), fenceWoodMat);
@@ -913,6 +946,20 @@ export function buildCompostStation(
   ws2Sign.position.set(0, 1.32, -0.58);
   ws2Group.add(ws2Sign);
 
+  if (sponsorController) {
+    const ws2Plaque = createPropBrandPlaque({
+      controller: sponsorController,
+      slotId: 'compost_bay',
+      width: 1.18,
+      height: 0.32,
+      mats,
+      maxAnisotropy,
+      disposables,
+    });
+    ws2Plaque.position.set(0, 1.72, -0.58);
+    ws2Group.add(ws2Plaque);
+  }
+
   const ws2Beacon = new THREE.Mesh(
     new THREE.RingGeometry(0.95, 1.04, 32),
     new THREE.MeshBasicMaterial({ color: 0x34d399, transparent: true, opacity: 0.7, side: THREE.DoubleSide })
@@ -935,6 +982,20 @@ export function buildCompostStation(
   ws3Table.castShadow = true;
   ws3Table.receiveShadow = true;
   ws3Group.add(ws3Table);
+
+  if (sponsorController) {
+    const ws3Plaque = createPropBrandPlaque({
+      controller: sponsorController,
+      slotId: 'compost_mulch_bench',
+      width: 1.06,
+      height: 0.32,
+      mats,
+      maxAnisotropy,
+      disposables,
+    });
+    ws3Plaque.position.set(0, 0.42, 0.5);
+    ws3Group.add(ws3Plaque);
+  }
 
   // Clickable Stacks: Cardboard vs. Newspaper on Back-Left
   const cardStack = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.05, 0.36), cardboardMat);
@@ -1607,6 +1668,17 @@ export function buildCompostStation(
         setProgress(currentProgress);
       }
     }
+    weatherFx.update(dt, time, activeWeatherMode, activeWindbreak, activeStormBrace);
+  };
+
+  const setWeatherState = (
+    weatherMode: WeatherMode,
+    windbreakInstalled: boolean,
+    stormBraceInstalled: boolean
+  ) => {
+    activeWeatherMode = weatherMode;
+    activeWindbreak = windbreakInstalled;
+    activeStormBrace = stormBraceInstalled;
   };
 
   const dispose = () => {
@@ -1641,6 +1713,7 @@ export function buildCompostStation(
     startActionAnim,
     setDoorOpenFactors,
     setProgress,
+    setWeatherState,
     update,
     dispose,
   };
