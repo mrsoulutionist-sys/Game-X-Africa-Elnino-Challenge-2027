@@ -264,7 +264,7 @@ export const GardenRackPanel: React.FC<GardenRackPanelProps> = ({
                 className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold whitespace-nowrap shrink-0 cursor-pointer"
               >
                 <Hammer className="w-3.5 h-3.5" />
-                <span>Assemble Rack {firstUnbuiltIndex + 1} of {rackSize}</span>
+                <span>Build Rack {firstUnbuiltIndex + 1} of {rackSize} in 3D</span>
               </button>
             )}
           </div>
@@ -312,7 +312,7 @@ export const GardenRackPanel: React.FC<GardenRackPanelProps> = ({
                       </>
                     ) : (
                       <span className="text-sm font-semibold text-amber-200 truncate">
-                        Needs 5-Step Frame Assembly
+                        Needs 3D 5-Step Frame &amp; Drill Build
                       </span>
                     )}
                   </div>
@@ -325,7 +325,7 @@ export const GardenRackPanel: React.FC<GardenRackPanelProps> = ({
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold whitespace-nowrap shrink-0 cursor-pointer"
                       >
                         <Hammer className="w-3.5 h-3.5" />
-                        <span>Assemble Rack {idx + 1}</span>
+                        <span>Build Rack {idx + 1} in 3D</span>
                       </button>
                     ) : !tier.pipeInstalled ? (
                       hasReadyPipe ? (

@@ -284,14 +284,21 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
                   </span>
                 )}
               </>
-            ) : isGarden ? (
+              ) : isGarden ? (
               <>
                 <span className="text-xs font-mono font-semibold text-emerald-400">
                   DOOR 2 · GARDEN
                 </span>
                 <span className="text-xs sm:text-sm font-semibold text-white">
-                  {WEATHER_FORECASTS[weatherMode].label}
+                  {hudState.rackBuildSession && hudState.rackBuildSession.activeRackIndex !== null
+                    ? `Rack ${hudState.rackBuildSession.activeRackIndex + 1}/${rackSize} · Step ${hudState.rackBuildSession.step}/5`
+                    : WEATHER_FORECASTS[weatherMode].label}
                 </span>
+                {hudState.manualAimMode && (
+                  <span className="text-xs font-mono font-semibold text-amber-300 tabular-nums">
+                    {hudState.completedSubSteps}/{hudState.totalSubSteps}
+                  </span>
+                )}
               </>
             ) : (
               <>
@@ -359,8 +366,8 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
                 <Hammer className="w-3.5 h-3.5" />
                 <span>
                   {builtRacksCount < rackSize
-                    ? `Assemble Racks (${builtRacksCount}/${rackSize})`
-                    : `Rack Builder · ${ecoBuilderPoints} pts`}
+                    ? `3D Build Racks (${builtRacksCount}/${rackSize})`
+                    : `Eco-Builder · ${ecoBuilderPoints} pts`}
                 </span>
               </button>
 

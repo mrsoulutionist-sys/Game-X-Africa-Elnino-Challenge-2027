@@ -21,8 +21,9 @@ import {
   buildGardenYard,
   type GardenResilienceState,
   type GardenYardHandle,
+  type RackBuildSessionState,
 } from './gardenYardBuilder';
-import type { BuiltRackRecord } from './rackMaterials';
+import type { BuiltRackRecord, RackMaterialId } from './rackMaterials';
 import { buildHydroponicRig, type HydroponicRigHandle } from './hydroponicRigBuilder';
 import { buildKitchenWorkshopRoom, type AABB, type KitchenRoomHandle } from './kitchenRoomBuilder';
 import { createWorkshopMaterials, type WorkshopMaterials } from './materials';
@@ -49,6 +50,8 @@ export interface WorkshopHudState {
   totalSubSteps: number;
   gardenTarget: GardenTargetKind;
   compostTarget: CompostTargetKind;
+  rackBuildSession: RackBuildSessionState | null;
+  rackSubActionLabel: string;
 }
 
 const ROOM_BOUNDS = {
@@ -74,6 +77,7 @@ export interface SceneCallbacks {
   onKitchenStepPersisted: (step: BuildStepId) => void;
   onZoneChanged: (zone: ActiveZone) => void;
   onOpenRackManager: () => void;
+  onConfirm3DRackBuild: (rackIndex: number, materialId: RackMaterialId, quickBuilt: boolean) => void;
   onOpenElNinoHub: () => void;
   onOpenCompostStation: (workstation?: 1 | 2 | 3) => void;
   onDoor3Update: (
@@ -145,6 +149,13 @@ export class KitchenWorkshopScene {
   private completedSubSteps = 0;
   private totalSubSteps = 0;
 
+  // 3D Garden Rack Builder state
+  private latestRackSize = 3;
+  private latestTiers: TierSaveState[] = [];
+  private latestBuiltRacks: BuiltRackRecord[] = [];
+  private rackBuildSession: RackBuildSessionState | null = null;
+  private rackSubActionLabel = 'Build Rack';
+
   // Throttled HUD diff trackers
   private lastInRange = false;
   private lastAligned = false;
@@ -152,6 +163,7 @@ export class KitchenWorkshopScene {
   private lastEmittedProgress = -1;
   private lastGardenTarget: GardenTargetKind = null;
   private lastCompostTarget: CompostTargetKind = null;
+  private lastRackBuildSig = '';
 
   // Pre-allocated math helpers
   private readonly forwardVec = new THREE.Vector3();
@@ -378,9 +390,14 @@ export class KitchenWorkshopScene {
                 ? 'pitcher_full'
                 : 'none';
 
+    this.latestRackSize = rackSize;
+    this.latestTiers = tiers;
+    this.latestBuiltRacks = builtRacks ?? [];
+    this.syncDefaultRackSession();
+
     this.room.setActiveStepVisuals(this.stepId, false);
     this.rig.setStepState(this.stepId, this.cutawayMode);
-    this.garden.setGardenState(rackSize, tiers, this.cutawayMode, this.resilience, builtRacks);
+    this.refreshGardenVisuals();
     this.compost.setProgress(this.door3Progress);
     this.compost.setWeatherState(
       this.resilience.weatherMode,
@@ -416,6 +433,13 @@ export class KitchenWorkshopScene {
     resilience?: GardenResilienceState,
     builtRacks?: BuiltRackRecord[]
   ): void {
+    this.latestRackSize = rackSize;
+    this.latestTiers = tiers;
+    if (builtRacks !== undefined) {
+      this.latestBuiltRacks = builtRacks;
+    }
+    this.syncDefaultRackSession();
+
     if (resilience) {
       this.resilience = resilience;
       this.compost.setWeatherState(
@@ -428,7 +452,168 @@ export class KitchenWorkshopScene {
         this.applyGardenAtmosphere();
       }
     }
-    this.garden.setGardenState(rackSize, tiers, this.cutawayMode, this.resilience, builtRacks);
+    this.refreshGardenVisuals();
+    this.emitState(true);
+  }
+
+  private createFreshRackSession(
+    rackIndex: number,
+    materialId: RackMaterialId = 'reclaimed_pvc'
+  ): RackBuildSessionState {
+    return {
+      activeRackIndex: rackIndex,
+      step: 1,
+      materialId,
+      uprightsDone: [false, false],
+      slatsDone: [false, false, false],
+      drainsDone: [false, false, false, false],
+      linerDone: false,
+    };
+  }
+
+  private syncDefaultRackSession(): void {
+    const builtSet = new Set(this.latestBuiltRacks.map((r) => r.rackIndex));
+    const firstUnbuilt = Array.from({ length: this.latestRackSize }, (_, i) => i).find(
+      (i) => !builtSet.has(i)
+    );
+    if (firstUnbuilt === undefined) {
+      this.rackBuildSession = null;
+      this.garden.resetRackBuildToolProgress();
+      return;
+    }
+    if (
+      !this.rackBuildSession ||
+      this.rackBuildSession.activeRackIndex === null ||
+      this.rackBuildSession.activeRackIndex >= this.latestRackSize ||
+      builtSet.has(this.rackBuildSession.activeRackIndex)
+    ) {
+      const preferredMat = this.rackBuildSession?.materialId ?? 'reclaimed_pvc';
+      this.rackBuildSession = this.createFreshRackSession(firstUnbuilt, preferredMat);
+      this.garden.resetRackBuildToolProgress();
+    }
+  }
+
+  private refreshGardenVisuals(): void {
+    this.garden.setGardenState(
+      this.latestRackSize,
+      this.latestTiers,
+      this.cutawayMode,
+      this.resilience,
+      this.latestBuiltRacks,
+      this.rackBuildSession
+    );
+  }
+
+  public start3DRackBuild(rackIndex?: number, focusCamera = true): void {
+    const builtSet = new Set(this.latestBuiltRacks.map((r) => r.rackIndex));
+    const targetIdx =
+      typeof rackIndex === 'number'
+        ? rackIndex
+        : Array.from({ length: this.latestRackSize }, (_, i) => i).find((i) => !builtSet.has(i));
+
+    if (targetIdx === undefined || targetIdx < 0 || targetIdx >= this.latestRackSize) {
+      this.rackBuildSession = null;
+      this.garden.resetRackBuildToolProgress();
+      this.refreshGardenVisuals();
+      this.emitState(true);
+      return;
+    }
+
+    const prevMat = this.rackBuildSession?.materialId ?? 'reclaimed_pvc';
+    this.rackBuildSession = this.createFreshRackSession(targetIdx, prevMat);
+    this.garden.resetRackBuildToolProgress();
+    this.actionHeld = false;
+    this.alignedTargetIndex = null;
+    this.subProgress = 0;
+
+    if (focusCamera && this.activeZone === 'garden') {
+      this.camera.position.set(0, PLAYER_EYE_Y, 0.92);
+      this.yaw = 0;
+      this.pitch = -0.1;
+      this.camera.rotation.y = this.yaw;
+      this.camera.rotation.x = this.pitch;
+    }
+
+    this.refreshGardenVisuals();
+    this.emitState(true);
+  }
+
+  public set3DRackBuildMaterial(materialId: RackMaterialId): void {
+    if (!this.rackBuildSession) return;
+    workshopAudio.playPickup();
+    this.rackBuildSession = {
+      ...this.rackBuildSession,
+      materialId,
+    };
+    this.refreshGardenVisuals();
+    this.emitState(true);
+  }
+
+  public begin3DRackAssemblyStep2(): void {
+    if (!this.rackBuildSession || this.rackBuildSession.activeRackIndex === null) return;
+    const rackIdx = this.rackBuildSession.activeRackIndex;
+    workshopAudio.playPickup();
+    this.rackBuildSession = {
+      ...this.rackBuildSession,
+      step: 2,
+      uprightsDone: [false, false],
+      slatsDone: [false, false, false],
+      drainsDone: [false, false, false, false],
+      linerDone: false,
+      quickBuilt: false,
+    };
+    this.garden.resetRackBuildToolProgress();
+    this.actionHeld = false;
+    this.alignedTargetIndex = null;
+    this.subProgress = 0;
+
+    if (this.activeZone === 'garden' && this.camera.position.z > 1.35) {
+      this.camera.position.set(0, PLAYER_EYE_Y, 0.92);
+      this.yaw = 0;
+      this.pitch = -0.1;
+      this.camera.rotation.y = this.yaw;
+      this.camera.rotation.x = this.pitch;
+    }
+
+    this.refreshGardenVisuals();
+    this.emitState(true);
+    workshopVoiceover.speakCustom(
+      `Rack ${rackIdx + 1} Step 2: Aim your center crosshair at the 2 glowing upright targets and hold E or Action to fasten them!`
+    );
+  }
+
+  public quickBuildActiveRack(): void {
+    if (!this.rackBuildSession || this.rackBuildSession.activeRackIndex === null) return;
+    workshopAudio.playSnapComplete();
+    this.actionHeld = false;
+    this.rackBuildSession = {
+      ...this.rackBuildSession,
+      step: 5,
+      uprightsDone: [true, true],
+      slatsDone: [true, true, true],
+      drainsDone: [true, true, true, true],
+      linerDone: true,
+      quickBuilt: true,
+    };
+    this.garden.resetRackBuildToolProgress();
+    this.refreshGardenVisuals();
+    this.emitState(true);
+  }
+
+  public confirmCurrentRackPlacement(): void {
+    if (
+      !this.rackBuildSession ||
+      this.rackBuildSession.activeRackIndex === null ||
+      this.rackBuildSession.step !== 5
+    ) {
+      return;
+    }
+    const idx = this.rackBuildSession.activeRackIndex;
+    const matId = this.rackBuildSession.materialId;
+    const quickBuilt = Boolean(this.rackBuildSession.quickBuilt);
+    this.actionHeld = false;
+    this.garden.resetRackBuildToolProgress();
+    this.callbacks.onConfirm3DRackBuild(idx, matId, quickBuilt);
   }
 
   public syncCompostProgress(progress: Door3ProgressState): void {
@@ -637,10 +822,23 @@ export class KitchenWorkshopScene {
     workshopVoiceover.unlockAndSpeakPending();
 
     if (this.activeZone === 'garden') {
+      if (this.isManualAimStep()) return;
       if (this.gardenTarget === 'kitchen_door' || this.gardenTarget === 'compost_door') {
         return;
       } else if (this.gardenTarget === 'jojo' || this.gardenTarget === 'weather') {
         this.callbacks.onOpenElNinoHub();
+      } else if (this.gardenTarget === 'rack') {
+        if (this.rackBuildSession && this.rackBuildSession.activeRackIndex !== null) {
+          if (this.rackBuildSession.step === 1) {
+            this.begin3DRackAssemblyStep2();
+            return;
+          }
+          if (this.rackBuildSession.step === 5) {
+            this.confirmCurrentRackPlacement();
+            return;
+          }
+        }
+        this.callbacks.onOpenRackManager();
       } else if (this.gardenTarget !== null) {
         this.callbacks.onOpenRackManager();
       }
@@ -767,6 +965,14 @@ export class KitchenWorkshopScene {
         return;
       } else if (this.gardenTarget === 'jojo' || this.gardenTarget === 'weather') {
         this.callbacks.onOpenElNinoHub();
+      } else if (this.rackBuildSession && this.rackBuildSession.activeRackIndex !== null) {
+        if (this.rackBuildSession.step === 1) {
+          this.begin3DRackAssemblyStep2();
+        } else if (this.rackBuildSession.step === 5) {
+          this.confirmCurrentRackPlacement();
+        } else {
+          this.callbacks.onOpenRackManager();
+        }
       } else {
         this.callbacks.onOpenRackManager();
       }
@@ -950,6 +1156,15 @@ export class KitchenWorkshopScene {
     if (this.activeZone === 'kitchen') {
       return this.stepId === 'CUT_AND_ASSEMBLE_PVC' || this.stepId === 'DRILL_PORTS';
     }
+    if (this.activeZone === 'garden') {
+      return Boolean(
+        this.rackBuildSession &&
+          this.rackBuildSession.activeRackIndex !== null &&
+          (this.rackBuildSession.step === 2 ||
+            this.rackBuildSession.step === 3 ||
+            this.rackBuildSession.step === 4)
+      );
+    }
     if (this.activeZone === 'compost') {
       return (
         (this.compostTarget === 'drip_bench' && this.door3Progress.dripStep === 1) ||
@@ -1033,7 +1248,7 @@ export class KitchenWorkshopScene {
       this.gardenTarget = 'jojo';
     } else if (distWeather <= 2.35) {
       this.gardenTarget = 'weather';
-    } else if (distRack <= 3.1) {
+    } else if (distRack <= 3.6) {
       this.gardenTarget = 'rack';
     } else {
       this.gardenTarget = null;
@@ -1091,6 +1306,79 @@ export class KitchenWorkshopScene {
     }
 
     const inRange = this.checkInRange();
+    if (this.activeZone === 'garden') {
+      if (inRange && this.rackBuildSession) {
+        const targets = this.garden.getRackRaycastTargets(this.rackBuildSession);
+        this.raycaster.setFromCamera(this.centerNdc, this.camera);
+        this.raycaster.far = 4.6;
+        const hits = this.raycaster.intersectObjects(targets, false);
+        this.alignedTargetIndex =
+          hits.length > 0 ? (hits[0].object.userData.targetIndex as number) : null;
+        this.raycaster.far = Infinity;
+      } else {
+        this.alignedTargetIndex = null;
+      }
+
+      const prevDrainsDone = this.rackBuildSession?.drainsDone.every(Boolean) ?? false;
+      const res = this.garden.stepRackManualTool(
+        this.rackBuildSession,
+        dt,
+        this.worldTime,
+        this.alignedTargetIndex,
+        inRange && this.actionHeld
+      );
+      this.subProgress = res.subProgress;
+      this.completedSubSteps = res.completedCount;
+      this.totalSubSteps = res.totalCount;
+      this.rackSubActionLabel = res.subActionLabel;
+
+      if (res.justCompletedSubTarget && this.rackBuildSession) {
+        const nowDrainsDone = this.rackBuildSession.drainsDone.every(Boolean);
+        this.rackBuildSession = {
+          ...this.rackBuildSession,
+          uprightsDone: [...this.rackBuildSession.uprightsDone] as [boolean, boolean],
+          slatsDone: [...this.rackBuildSession.slatsDone] as [boolean, boolean, boolean],
+          drainsDone: [...this.rackBuildSession.drainsDone] as [boolean, boolean, boolean, boolean],
+        };
+        if (!prevDrainsDone && nowDrainsDone && this.rackBuildSession.step === 4) {
+          workshopVoiceover.speakCustom(
+            'All 4 drainage holes drilled! Now aim at the center mark and hold to fit the moisture liner.'
+          );
+        }
+        this.refreshGardenVisuals();
+        this.emitState(true);
+      }
+
+      if (res.stepDone && this.rackBuildSession) {
+        this.actionHeld = false;
+        this.alignedTargetIndex = null;
+        this.subProgress = 0;
+        const prevStep = this.rackBuildSession.step;
+        const nextStep: 3 | 4 | 5 = prevStep === 2 ? 3 : prevStep === 3 ? 4 : 5;
+        this.rackBuildSession = {
+          ...this.rackBuildSession,
+          step: nextStep,
+        };
+        this.refreshGardenVisuals();
+        this.emitState(true);
+
+        if (nextStep === 3) {
+          workshopVoiceover.speakCustom(
+            'Side uprights fastened! Now aim at the 3 horizontal cross-slat targets and hold to attach them.'
+          );
+        } else if (nextStep === 4) {
+          workshopVoiceover.speakCustom(
+            'Cross slats locked! Now aim your 3D cordless drill at the 4 glowing drainage marks and hold to drill.'
+          );
+        } else {
+          workshopVoiceover.speakCustom(
+            `Rack ${(this.rackBuildSession.activeRackIndex ?? 0) + 1} assembled and drilled! Press E or click Confirm & Place to lock it into your garden grid.`
+          );
+        }
+      }
+      return;
+    }
+
     if (this.activeZone === 'compost') {
       if (inRange) {
         const targets = this.compost.getRaycastTargets(this.door3Progress);
@@ -1202,6 +1490,9 @@ export class KitchenWorkshopScene {
     const inRange = this.checkInRange();
     const reticleAligned = this.alignedTargetIndex !== null && inRange;
     const progressChanged = Math.abs(this.subProgress - this.lastEmittedProgress) >= 0.04;
+    const rackSessionSig = this.rackBuildSession
+      ? `${this.rackBuildSession.activeRackIndex}:${this.rackBuildSession.step}:${this.rackBuildSession.materialId}:${this.rackBuildSession.uprightsDone.join('')}:${this.rackBuildSession.slatsDone.join('')}:${this.rackBuildSession.drainsDone.join('')}:${this.rackBuildSession.linerDone}:${this.rackSubActionLabel}`
+      : 'none';
 
     if (
       !force &&
@@ -1210,6 +1501,7 @@ export class KitchenWorkshopScene {
       this.completedSubSteps === this.lastCompletedSub &&
       this.gardenTarget === this.lastGardenTarget &&
       this.compostTarget === this.lastCompostTarget &&
+      rackSessionSig === this.lastRackBuildSig &&
       !progressChanged
     ) {
       return;
@@ -1221,11 +1513,24 @@ export class KitchenWorkshopScene {
     this.lastEmittedProgress = this.subProgress;
     this.lastGardenTarget = this.gardenTarget;
     this.lastCompostTarget = this.compostTarget;
+    this.lastRackBuildSig = rackSessionSig;
 
     const stepDef = BUILD_STEPS[this.stepId];
     const cutawayAvailable =
       this.activeZone === 'garden' ||
       (this.activeZone === 'kitchen' && this.stepId !== 'GET_SAW' && this.stepId !== 'CUT_AND_ASSEMBLE_PVC');
+
+    let gardenRackLabel = 'Manage Rack & Crops';
+    if (this.rackBuildSession && this.rackBuildSession.activeRackIndex !== null) {
+      const rNum = this.rackBuildSession.activeRackIndex + 1;
+      if (this.rackBuildSession.step === 1) {
+        gardenRackLabel = `Start 3D Build (Rack ${rNum})`;
+      } else if (this.rackBuildSession.step === 5) {
+        gardenRackLabel = `Confirm & Place Rack ${rNum}`;
+      } else {
+        gardenRackLabel = this.rackSubActionLabel;
+      }
+    }
 
     const targetLabel =
       this.activeZone === 'garden'
@@ -1237,10 +1542,19 @@ export class KitchenWorkshopScene {
               ? 'JoJo Rain Tank'
               : this.gardenTarget === 'weather'
                 ? 'El Niño Forecast'
-                : 'Manage Rack & Crops'
+                : gardenRackLabel
         : this.activeZone === 'compost'
           ? this.getCompostActionLabel()
           : this.room.targetZones[stepDef.targetZone].label;
+
+    const clonedRackSession: RackBuildSessionState | null = this.rackBuildSession
+      ? {
+          ...this.rackBuildSession,
+          uprightsDone: [...this.rackBuildSession.uprightsDone] as [boolean, boolean],
+          slatsDone: [...this.rackBuildSession.slatsDone] as [boolean, boolean, boolean],
+          drainsDone: [...this.rackBuildSession.drainsDone] as [boolean, boolean, boolean, boolean],
+        }
+      : null;
 
     this.callbacks.onHudChange({
       activeZone: this.activeZone,
@@ -1258,6 +1572,8 @@ export class KitchenWorkshopScene {
       totalSubSteps: this.totalSubSteps,
       gardenTarget: this.gardenTarget,
       compostTarget: this.compostTarget,
+      rackBuildSession: clonedRackSession,
+      rackSubActionLabel: this.rackSubActionLabel,
     });
   }
 
@@ -1463,6 +1779,7 @@ export class KitchenWorkshopScene {
       this.rig.update(dt, this.worldTime);
     } else if (this.activeZone === 'garden') {
       this.updateGardenProximity();
+      this.updateManualAimAndTool(dt);
       this.garden.update(dt, this.worldTime, Date.now());
     } else {
       this.updateCompostProximity();

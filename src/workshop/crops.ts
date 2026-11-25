@@ -1,14 +1,14 @@
 export type CropId =
-  | 'amaranth'
-  | 'spinach'
-  | 'kale'
-  | 'lettuce'
-  | 'coriander'
-  | 'basil'
-  | 'mint'
-  | 'spring_onion'
-  | 'bok_choy'
-  | 'cowpea';
+  | 'potatoes'
+  | 'tomatoes'
+  | 'onions'
+  | 'green_peppers'
+  | 'sweet_peppers'
+  | 'sweet_corn'
+  | 'cabbage'
+  | 'carrots'
+  | 'butternut'
+  | 'beetroot';
 
 export type CanopyStyle = 'rosette' | 'upright' | 'herb' | 'broad';
 export type WeatherMode = 'normal' | 'rain_storm' | 'windy' | 'elnino_watch' | 'heatwave';
@@ -80,7 +80,7 @@ export const WEATHER_FORECASTS: Record<WeatherMode, WeatherForecastMeta> = {
     precautions: [
       'Deploy Woven Windbreak Netting around the rack (-55% wind shear & leaf bruising).',
       'Add Door 3 Cardboard Mulch Collars to lock reservoir & root moisture.',
-      'Favor sturdy broad-leaf crops (Morogo, Kale, Spinach) with low center of gravity.',
+      'Favor sturdy broad-leaf crops (Cabbage, Potatoes, Butternut) with low center of gravity.',
     ],
   },
   elnino_watch: {
@@ -168,140 +168,156 @@ export function formatDurationCompact(ms: number, includeSeconds = false): strin
 
 export const EL_NINO_CROPS: CropDefinition[] = [
   {
-    id: 'amaranth',
-    name: 'African Amaranth (Morogo)',
-    shortLabel: 'Morogo',
-    maturityHours: 18,
-    waterDurationHours: 96,
-    servingsPerHarvest: 6,
-    heatResilient: true,
-    droughtTrait: 'Thrives in extreme El Niño heat with minimal water loss; rich in iron and protein.',
-    leafColorHex: 0x3b9a45,
-    accentColorHex: 0x70c965,
-    canopyStyle: 'broad',
-  },
-  {
-    id: 'spinach',
-    name: 'Swiss Chard (Spinach)',
-    shortLabel: 'Spinach',
+    id: 'potatoes',
+    name: 'SA Potatoes (Sifra)',
+    shortLabel: 'Potatoes',
     maturityHours: 24,
-    waterDurationHours: 84,
-    servingsPerHarvest: 6,
-    heatResilient: true,
-    droughtTrait: 'Cut-and-come-again leaves sustain households even when outdoor fields fail.',
-    leafColorHex: 0x2d8242,
-    accentColorHex: 0x57b863,
-    canopyStyle: 'broad',
-  },
-  {
-    id: 'kale',
-    name: 'Drought-Hardy Kale',
-    shortLabel: 'Kale',
-    maturityHours: 32,
     waterDurationHours: 96,
-    servingsPerHarvest: 7,
+    servingsPerHarvest: 8,
     heatResilient: true,
-    droughtTrait: 'Waxy leaves resist hot dry winds while steady capillary moisture prevents wilting.',
-    leafColorHex: 0x2a6e46,
-    accentColorHex: 0x489c68,
+    droughtTrait: 'South Africa’s #1 staple crop; feeds households, stocks the market & fuels sanctuary herbivores.',
+    leafColorHex: 0x3b8c3e,
+    accentColorHex: 0xe2e8f0,
     canopyStyle: 'broad',
   },
   {
-    id: 'lettuce',
-    name: 'Heat-Tolerant Butterhead',
-    shortLabel: 'Lettuce',
-    maturityHours: 18,
-    waterDurationHours: 72,
-    servingsPerHarvest: 4,
-    heatResilient: false,
-    droughtTrait: 'Fast compact rosette grows cleanly in shaded PVC tiers away from scorching sun.',
-    leafColorHex: 0x62bd4f,
-    accentColorHex: 0x8de06e,
-    canopyStyle: 'rosette',
-  },
-  {
-    id: 'coriander',
-    name: 'Dhania (Coriander)',
-    shortLabel: 'Dhania',
-    maturityHours: 12,
-    waterDurationHours: 72,
-    servingsPerHarvest: 3,
-    heatResilient: false,
-    droughtTrait: 'Rapid 12-hour sprout cycle delivers quick vitamins during sudden food shortages.',
-    leafColorHex: 0x4aa854,
-    accentColorHex: 0x7cd47d,
-    canopyStyle: 'herb',
-  },
-  {
-    id: 'basil',
-    name: 'Sweet Genovese Basil',
-    shortLabel: 'Basil',
-    maturityHours: 16,
-    waterDurationHours: 84,
-    servingsPerHarvest: 4,
-    heatResilient: true,
-    droughtTrait: 'Loves warm air and turns passive wicking into dense aromatic foliage.',
-    leafColorHex: 0x399444,
-    accentColorHex: 0x67c46a,
-    canopyStyle: 'herb',
-  },
-  {
-    id: 'mint',
-    name: 'Hardy Spearmint',
-    shortLabel: 'Mint',
+    id: 'tomatoes',
+    name: 'Roma Jam Tomatoes',
+    shortLabel: 'Tomatoes',
     maturityHours: 20,
     waterDurationHours: 84,
-    servingsPerHarvest: 4,
+    servingsPerHarvest: 6,
     heatResilient: true,
-    droughtTrait: 'Resilient runner roots recover rapidly even after prolonged dry-spell stress.',
-    leafColorHex: 0x329c64,
-    accentColorHex: 0x5fd192,
-    canopyStyle: 'herb',
+    droughtTrait: 'Sun-loving SA market favorite; high daily yield for school sales and fresh pet treats.',
+    leafColorHex: 0x2f8540,
+    accentColorHex: 0xef4444,
+    canopyStyle: 'broad',
   },
   {
-    id: 'spring_onion',
-    name: 'Spring Onion (Scallion)',
-    shortLabel: 'Scallion',
-    maturityHours: 28,
+    id: 'onions',
+    name: 'Caledon Brown Onions',
+    shortLabel: 'Onions',
+    maturityHours: 22,
     waterDurationHours: 108,
-    servingsPerHarvest: 5,
+    servingsPerHarvest: 6,
     heatResilient: true,
-    droughtTrait: 'Hollow tubular shoots conserve moisture and regrow continuously from bulbs.',
+    droughtTrait: 'Low-evaporation tubular shoots store moisture and keep kitchens & markets supplied year-round.',
     leafColorHex: 0x4ca644,
-    accentColorHex: 0x86d164,
+    accentColorHex: 0xd97706,
     canopyStyle: 'upright',
   },
   {
-    id: 'bok_choy',
-    name: 'Dwarf Bok Choy',
-    shortLabel: 'Bok Choy',
-    maturityHours: 22,
-    waterDurationHours: 80,
+    id: 'green_peppers',
+    name: 'Green Bell Peppers',
+    shortLabel: 'Green Peppers',
+    maturityHours: 18,
+    waterDurationHours: 84,
     servingsPerHarvest: 5,
-    heatResilient: false,
-    droughtTrait: 'Dense nutritious stalks fit 50 mm PVC ports with very low evaporation loss.',
-    leafColorHex: 0x409b4b,
-    accentColorHex: 0x8cd47e,
+    heatResilient: true,
+    droughtTrait: 'Crisp, fast-turning crop ideal for shaded PVC channels, market baskets & animal vitamins.',
+    leafColorHex: 0x2d7d3f,
+    accentColorHex: 0x22c55e,
+    canopyStyle: 'broad',
+  },
+  {
+    id: 'sweet_peppers',
+    name: 'Sweet Red & Gold Peppers',
+    shortLabel: 'Peppers',
+    maturityHours: 20,
+    waterDurationHours: 84,
+    servingsPerHarvest: 6,
+    heatResilient: true,
+    droughtTrait: 'High-value colourful peppers prized in school markets and rich in tortoise-friendly vitamin C.',
+    leafColorHex: 0x358744,
+    accentColorHex: 0xf59e0b,
+    canopyStyle: 'broad',
+  },
+  {
+    id: 'sweet_corn',
+    name: 'South African Mielies (Corn)',
+    shortLabel: 'Corn',
+    maturityHours: 24,
+    waterDurationHours: 96,
+    servingsPerHarvest: 8,
+    heatResilient: true,
+    droughtTrait: 'Iconic maize staple; grain & sweet husks sell fast and feed sanctuary tortoises, rabbits & dassies.',
+    leafColorHex: 0x4b993f,
+    accentColorHex: 0xfacc15,
+    canopyStyle: 'upright',
+  },
+  {
+    id: 'cabbage',
+    name: 'Cape Green Cabbage',
+    shortLabel: 'Cabbage',
+    maturityHours: 22,
+    waterDurationHours: 92,
+    servingsPerHarvest: 7,
+    heatResilient: true,
+    droughtTrait: 'Top SA household leaf crop; outer leaves nourish sanctuary animals while heads stock the store.',
+    leafColorHex: 0x4fa85b,
+    accentColorHex: 0x9be28d,
     canopyStyle: 'rosette',
   },
   {
-    id: 'cowpea',
-    name: 'Cowpea Greens (Dinawa)',
-    shortLabel: 'Cowpea',
-    maturityHours: 36,
-    waterDurationHours: 120,
-    servingsPerHarvest: 8,
+    id: 'carrots',
+    name: 'Nantes Garden Carrots',
+    shortLabel: 'Carrots',
+    maturityHours: 18,
+    waterDurationHours: 80,
+    servingsPerHarvest: 6,
+    heatResilient: false,
+    droughtTrait: 'Quick 18h harvest; sweet roots and leafy tops are the top snack for rabbits, grysbok & dassies.',
+    leafColorHex: 0x469e49,
+    accentColorHex: 0xf97316,
+    canopyStyle: 'herb',
+  },
+  {
+    id: 'butternut',
+    name: 'Waltham Butternut Squash',
+    shortLabel: 'Butternut',
+    maturityHours: 24,
+    waterDurationHours: 104,
+    servingsPerHarvest: 7,
     heatResilient: true,
-    droughtTrait: 'Southern African drought-survival staple producing protein-rich leaves on low water.',
-    leafColorHex: 0x347d3d,
-    accentColorHex: 0x5eb060,
+    droughtTrait: 'Heat-hardy SA dryland favorite that stores naturally and delivers high-calorie animal & family food.',
+    leafColorHex: 0x378542,
+    accentColorHex: 0xfb923c,
     canopyStyle: 'broad',
+  },
+  {
+    id: 'beetroot',
+    name: 'Detroit Red Beetroot',
+    shortLabel: 'Beetroot',
+    maturityHours: 18,
+    waterDurationHours: 84,
+    servingsPerHarvest: 5,
+    heatResilient: true,
+    droughtTrait: 'Dual-harvest crop: vitamin-rich leafy greens feed sanctuary pets while roots stock local markets.',
+    leafColorHex: 0x3a8744,
+    accentColorHex: 0xbe123c,
+    canopyStyle: 'rosette',
   },
 ];
 
-export function getCropById(cropId: CropId | null): CropDefinition | null {
+const LEGACY_CROP_FALLBACK: Record<string, CropId> = {
+  amaranth: 'cabbage',
+  spinach: 'beetroot',
+  kale: 'cabbage',
+  lettuce: 'green_peppers',
+  coriander: 'carrots',
+  basil: 'tomatoes',
+  mint: 'sweet_peppers',
+  spring_onion: 'onions',
+  bok_choy: 'butternut',
+  cowpea: 'potatoes',
+};
+
+export function getCropById(cropId: CropId | string | null): CropDefinition | null {
   if (!cropId) return null;
-  return EL_NINO_CROPS.find((c) => c.id === cropId) ?? null;
+  const direct = EL_NINO_CROPS.find((c) => c.id === cropId);
+  if (direct) return direct;
+  const mappedId = LEGACY_CROP_FALLBACK[cropId];
+  return mappedId ? EL_NINO_CROPS.find((c) => c.id === mappedId) ?? null : null;
 }
 
 export function createEmptyTier(tierIndex: number): TierSaveState {

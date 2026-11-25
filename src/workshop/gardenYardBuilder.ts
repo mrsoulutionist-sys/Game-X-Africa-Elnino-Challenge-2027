@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { workshopAudio } from './audio';
 import {
   WEATHER_FORECASTS,
   computeTierLiveMetrics,
@@ -16,6 +17,28 @@ import {
   type DynamicSponsorController,
 } from './sponsorSignage';
 import { createWeatherFxSystem } from './weatherFx';
+
+export type RackBuildStep = 1 | 2 | 3 | 4 | 5;
+
+export interface RackBuildSessionState {
+  activeRackIndex: number | null;
+  step: RackBuildStep;
+  materialId: RackMaterialId;
+  uprightsDone: [boolean, boolean];
+  slatsDone: [boolean, boolean, boolean];
+  drainsDone: [boolean, boolean, boolean, boolean];
+  linerDone: boolean;
+  quickBuilt?: boolean;
+}
+
+export interface RackManualToolResult {
+  stepDone: boolean;
+  subProgress: number;
+  completedCount: number;
+  totalCount: number;
+  subActionLabel: string;
+  justCompletedSubTarget?: boolean;
+}
 
 export interface GardenResilienceState {
   jojoInstalled: boolean;
@@ -41,8 +64,18 @@ export interface GardenYardHandle {
     tiers: TierSaveState[],
     cutawayMode: boolean,
     resilience?: GardenResilienceState,
-    builtRacks?: BuiltRackRecord[]
+    builtRacks?: BuiltRackRecord[],
+    rackBuildSession?: RackBuildSessionState | null
   ) => void;
+  getRackRaycastTargets: (session: RackBuildSessionState | null) => THREE.Object3D[];
+  stepRackManualTool: (
+    session: RackBuildSessionState | null,
+    dt: number,
+    time: number,
+    alignedIndex: number | null,
+    isHolding: boolean
+  ) => RackManualToolResult;
+  resetRackBuildToolProgress: () => void;
   update: (dt: number, time: number, nowMs: number) => void;
   dispose: () => void;
 }
@@ -637,6 +670,186 @@ export function buildGardenYard(
   const dynamicRackGroup = new THREE.Group();
   rackRoot.add(dynamicRackGroup);
 
+  // --------------------------------------------------------------------------
+  // 5b. In-World 3D 5-Step Rack Assembly Overlay (Uprights, Slats, 3D Drill, Liner)
+  // --------------------------------------------------------------------------
+  const rackBuildOverlayGroup = new THREE.Group();
+  rackBuildOverlayGroup.visible = false;
+  rackRoot.add(rackBuildOverlayGroup);
+
+  const bayTargetGroup = new THREE.Group();
+  rackBuildOverlayGroup.add(bayTargetGroup);
+
+  // Small 3D Material Sample Caddy beside the rack during Step 1
+  const swatchCaddy = new THREE.Group();
+  swatchCaddy.position.set(-1.32, 0, -0.05);
+  swatchCaddy.visible = false;
+  const caddyPost = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.038, 0.78, 10), mats.darkMetalMat);
+  caddyPost.position.y = 0.39;
+  swatchCaddy.add(caddyPost);
+  const caddyTray = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.04, 0.28), mats.cabinetDarkMat);
+  caddyTray.position.y = 0.79;
+  swatchCaddy.add(caddyTray);
+  const swatchBlock = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.09, 0.18), mats.rackReclaimedPvcMat);
+  swatchBlock.position.y = 0.855;
+  swatchBlock.rotation.y = 0.25;
+  swatchCaddy.add(swatchBlock);
+  rackBuildOverlayGroup.add(swatchCaddy);
+
+  const rackHitboxMat = new THREE.MeshBasicMaterial({ visible: false });
+  disposables.push(rackHitboxMat);
+
+  const makeBullseyeTarget = (
+    outerR: number,
+    innerR: number,
+    hitRadius: number,
+    kind: string,
+    index: number
+  ) => {
+    const tg = new THREE.Group();
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0xfbbf24,
+      transparent: true,
+      opacity: 0.9,
+      side: THREE.DoubleSide,
+    });
+    const coreMat = new THREE.MeshBasicMaterial({
+      color: 0xfef08a,
+      transparent: true,
+      opacity: 0.8,
+      side: THREE.DoubleSide,
+    });
+    disposables.push(ringMat, coreMat);
+
+    const ring = new THREE.Mesh(new THREE.RingGeometry(innerR, outerR, 24), ringMat);
+    tg.add(ring);
+    const core = new THREE.Mesh(new THREE.CircleGeometry(innerR * 0.52, 16), coreMat);
+    core.position.z = 0.002;
+    tg.add(core);
+
+    const hitSphere = new THREE.Mesh(new THREE.SphereGeometry(hitRadius, 10, 8), rackHitboxMat);
+    hitSphere.userData.targetKind = kind;
+    hitSphere.userData.targetIndex = index;
+    tg.add(hitSphere);
+
+    bayTargetGroup.add(tg);
+    return { group: tg, ringMat, coreMat, hitSphere };
+  };
+
+  // Step 2: 2 Side Upright targets (Left -0.75, Right +0.75)
+  const uprightTargets = [-0.75, 0.75].map((ux, idx) => {
+    const t = makeBullseyeTarget(0.088, 0.056, 0.19, 'rack_upright', idx);
+    t.group.position.set(ux, -0.02, 0.075);
+    return t;
+  });
+
+  // Step 3: 3 Horizontal Cross Slat fastener targets spaced across front edge (non-overlapping in Z)
+  const SLAT_TARGET_X = [-0.46, 0, 0.46];
+  const slatTargets = SLAT_TARGET_X.map((sx, idx) => {
+    const t = makeBullseyeTarget(0.072, 0.044, 0.17, 'rack_slat', idx);
+    t.group.position.set(sx, -PIPE_RADIUS - 0.014, 0.115);
+    t.group.rotation.x = -0.28;
+    return t;
+  });
+
+  // Step 4a: 4 Cordless Drill drainage hole bullseyes
+  const drillTargets = PORT_X_OFFSETS.map((px, idx) => {
+    const t = makeBullseyeTarget(0.056, 0.032, 0.135, 'rack_drill', idx);
+    t.group.position.set(px, -PIPE_RADIUS + 0.016, 0.058);
+    t.group.rotation.x = -Math.PI * 0.28;
+    return t;
+  });
+
+  // Step 4b: Center Waterproof Liner fit target
+  const linerTarget = makeBullseyeTarget(0.115, 0.074, 0.24, 'rack_liner', 0);
+  linerTarget.group.position.set(0, -PIPE_RADIUS + 0.028, 0.09);
+  linerTarget.group.rotation.x = -0.3;
+
+  // Step 5: Completed Rack Emerald Placement Halo
+  const step5HaloMat = new THREE.MeshBasicMaterial({
+    color: 0x34d399,
+    transparent: true,
+    opacity: 0.72,
+    side: THREE.DoubleSide,
+  });
+  disposables.push(step5HaloMat);
+  const step5Halo = new THREE.Mesh(new THREE.BoxGeometry(1.56, 0.3, 0.28), step5HaloMat);
+  step5HaloMat.wireframe = true;
+  step5Halo.position.set(0, -0.02, 0);
+  step5Halo.visible = false;
+  bayTargetGroup.add(step5Halo);
+
+  // 3D Animated Ratchet / Wrench Tool (Steps 2 & 3)
+  const animWrench = new THREE.Group();
+  animWrench.visible = false;
+  const wHandle = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.22, 0.018), mats.chromeMat);
+  wHandle.position.y = 0.11;
+  animWrench.add(wHandle);
+  const wGrip = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.11, 10), mats.drillBodyMat);
+  wGrip.position.y = 0.19;
+  animWrench.add(wGrip);
+  const wHead = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.038, 12), mats.stainlessMat);
+  wHead.rotation.x = Math.PI * 0.5;
+  wHead.position.set(0, 0, -0.015);
+  animWrench.add(wHead);
+  bayTargetGroup.add(animWrench);
+
+  // 3D Animated Cordless Drill (Step 4a - identical styling to Kitchen drill)
+  const animRackDrill = new THREE.Group();
+  animRackDrill.visible = false;
+  const rdBody = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.034, 0.16, 12), mats.drillBodyMat);
+  rdBody.position.y = 0.16;
+  animRackDrill.add(rdBody);
+  const rdGrip = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.115, 0.046), mats.drillBodyMat);
+  rdGrip.position.set(-0.068, 0.15, 0);
+  rdGrip.rotation.z = 0.35;
+  animRackDrill.add(rdGrip);
+  const rdBit = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.065, 14, 1, true), mats.brassMat);
+  rdBit.position.y = 0.045;
+  animRackDrill.add(rdBit);
+  animRackDrill.rotation.x = 0.28;
+  bayTargetGroup.add(animRackDrill);
+
+  // 3D Animated Liner Roll (Step 4b)
+  const animLinerRoll = new THREE.Group();
+  animLinerRoll.visible = false;
+  const rollCyl = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.038, 0.24, 14), mats.rackLinerMat);
+  rollCyl.rotation.x = Math.PI * 0.5;
+  animLinerRoll.add(rollCyl);
+  bayTargetGroup.add(animLinerRoll);
+
+  // 3D Shavings & Spark Burst Particles (Steps 2–4)
+  const rackShavingsGroup = new THREE.Group();
+  rackShavingsGroup.visible = false;
+  bayTargetGroup.add(rackShavingsGroup);
+  const rackShavingParticles: Array<{ mesh: THREE.Mesh; vx: number; vy: number; vz: number }> = [];
+  for (let i = 0; i < 14; i++) {
+    const chip = new THREE.Mesh(new THREE.BoxGeometry(0.011, 0.006, 0.008), mats.brassMat);
+    rackShavingsGroup.add(chip);
+    rackShavingParticles.push({
+      mesh: chip,
+      vx: ((i % 5) - 2) * 0.17,
+      vy: 0.32 + (i % 3) * 0.15,
+      vz: (((i * 3) % 5) - 2) * 0.15,
+    });
+  }
+
+  let uprightHoldProgress = [0, 0];
+  let slatHoldProgress = [0, 0, 0];
+  let drillHoldProgress = [0, 0, 0, 0];
+  let linerHoldProgress = 0;
+
+  const resetRackBuildToolProgress = () => {
+    uprightHoldProgress = [0, 0];
+    slatHoldProgress = [0, 0, 0];
+    drillHoldProgress = [0, 0, 0, 0];
+    linerHoldProgress = 0;
+    animWrench.visible = false;
+    animRackDrill.visible = false;
+    animLinerRoll.visible = false;
+    rackShavingsGroup.visible = false;
+  };
+
   interface TierRuntimeVisual {
     tier: TierSaveState;
     waterGroup: THREE.Group;
@@ -689,7 +902,8 @@ export function buildGardenYard(
     tiers: TierSaveState[],
     cutawayMode: boolean,
     resilience?: GardenResilienceState,
-    builtRacks?: BuiltRackRecord[]
+    builtRacks?: BuiltRackRecord[],
+    rackBuildSession?: RackBuildSessionState | null
   ) => {
     const clampedSize = Math.max(1, Math.min(6, rackSize));
     const jojoInstalled = resilience?.jojoInstalled ?? false;
@@ -739,6 +953,38 @@ export function buildGardenYard(
       shadePlaque.position.set(0, topHeightPreview + 0.34, 0.51);
     }
 
+    // Update persistent 3D Assembly Overlay & target visibility
+    const activeIdx = rackBuildSession?.activeRackIndex ?? null;
+    if (activeIdx !== null && activeIdx >= 0 && activeIdx < clampedSize && rackBuildSession) {
+      const ty = 0.4 + activeIdx * 0.31;
+      const tz = 0.24 - activeIdx * 0.095;
+      rackBuildOverlayGroup.visible = true;
+      bayTargetGroup.position.set(0, ty, tz);
+
+      swatchCaddy.visible = rackBuildSession.step === 1;
+      swatchBlock.material = resolveRackFrameMat(
+        rackBuildSession.materialId
+      ) as THREE.MeshStandardMaterial;
+
+      const s = rackBuildSession.step;
+      uprightTargets.forEach((t, idx) => {
+        t.group.visible = s === 2 && !rackBuildSession.uprightsDone[idx];
+      });
+      slatTargets.forEach((t, idx) => {
+        t.group.visible = s === 3 && !rackBuildSession.slatsDone[idx];
+      });
+      const allDrainsDone = rackBuildSession.drainsDone.every(Boolean);
+      drillTargets.forEach((t, idx) => {
+        t.group.visible = s === 4 && !rackBuildSession.drainsDone[idx];
+      });
+      linerTarget.group.visible = s === 4 && allDrainsDone && !rackBuildSession.linerDone;
+      step5Halo.visible = s === 5;
+    } else {
+      rackBuildOverlayGroup.visible = false;
+      swatchCaddy.visible = false;
+      step5Halo.visible = false;
+    }
+
     const builtMap = new Map<number, BuiltRackRecord>();
     if (Array.isArray(builtRacks)) {
       builtRacks.forEach((b) => builtMap.set(b.rackIndex, b));
@@ -749,6 +995,18 @@ export function buildGardenYard(
       cutawayMode,
       shadeClothInstalled,
       built: Array.from({ length: clampedSize }, (_, idx) => builtMap.get(idx)?.materialId ?? 'unbuilt'),
+      buildSession:
+        activeIdx !== null && rackBuildSession
+          ? {
+              i: activeIdx,
+              s: rackBuildSession.step,
+              m: rackBuildSession.materialId,
+              u: rackBuildSession.uprightsDone,
+              sl: rackBuildSession.slatsDone,
+              d: rackBuildSession.drainsDone,
+              l: rackBuildSession.linerDone,
+            }
+          : null,
       tiers: tiers.map((t) => ({
         i: t.tierIndex,
         p: t.pipeInstalled,
@@ -768,9 +1026,13 @@ export function buildGardenYard(
 
     const topHeight = 0.45 + (clampedSize - 1) * 0.31 + 0.25;
     const firstBuilt = builtMap.get(0) ?? builtRacks?.[0];
-    const spineMat = firstBuilt ? resolveRackFrameMat(firstBuilt.materialId) : mats.rackUnbuiltGhostMat;
+    const spineMat = firstBuilt
+      ? resolveRackFrameMat(firstBuilt.materialId)
+      : rackBuildSession && rackBuildSession.activeRackIndex !== null
+        ? resolveRackFrameMat(rackBuildSession.materialId)
+        : mats.rackUnbuiltGhostMat;
 
-    // A-frame spine uprights on left & right (tinted/textured to primary built material, or ghost outline if none built)
+    // A-frame spine uprights on left & right
     [-0.78, 0.78].forEach((ux) => {
       const frontLeg = new THREE.Mesh(
         new THREE.BoxGeometry(0.055, topHeight + 0.1, 0.055),
@@ -836,40 +1098,101 @@ export function buildGardenYard(
       };
       const builtSpec = builtMap.get(i);
       const isRackBuilt = Boolean(builtSpec);
-      const bayMat = builtSpec ? resolveRackFrameMat(builtSpec.materialId) : mats.rackUnbuiltGhostMat;
+      const isActivelyAssembling = activeIdx === i && Boolean(rackBuildSession);
+      const sessionMat = rackBuildSession
+        ? resolveRackFrameMat(rackBuildSession.materialId)
+        : mats.darkMetalMat;
+      const bayMat = builtSpec
+        ? resolveRackFrameMat(builtSpec.materialId)
+        : isActivelyAssembling
+          ? sessionMat
+          : mats.rackUnbuiltGhostMat;
       const ty = 0.4 + i * 0.31;
       const tz = 0.24 - i * 0.095;
 
-      // 2 Vertical Side Upright Bay Brackets in the rack's chosen material (or ghost wireframe)
-      [-0.75, 0.75].forEach((ux) => {
+      // 2 Vertical Side Upright Bay Brackets
+      [-0.75, 0.75].forEach((ux, uIdx) => {
+        const uprightSolid =
+          isRackBuilt ||
+          (isActivelyAssembling &&
+            rackBuildSession !== null &&
+            rackBuildSession !== undefined &&
+            (rackBuildSession.step > 2 ||
+              (rackBuildSession.step === 2 && rackBuildSession.uprightsDone[uIdx])));
         const bayUpright = new THREE.Mesh(
           new THREE.BoxGeometry(0.068, 0.26, 0.08),
-          bayMat
+          uprightSolid ? bayMat : mats.rackUnbuiltGhostMat
         );
         bayUpright.position.set(ux, ty - 0.02, tz);
-        bayUpright.castShadow = isRackBuilt;
+        bayUpright.castShadow = uprightSolid;
         dynamicRackGroup.add(bayUpright);
       });
 
-      // 3 Horizontal Cross Slats (Front, Center, Rear) spanning between uprights
-      [-0.085, 0, 0.085].forEach((szOffset) => {
+      // 3 Horizontal Cross Slats (Rear, Center, Front)
+      [-0.085, 0, 0.085].forEach((szOffset, sIdx) => {
+        const slatSolid =
+          isRackBuilt ||
+          (isActivelyAssembling &&
+            rackBuildSession !== null &&
+            rackBuildSession !== undefined &&
+            (rackBuildSession.step > 3 ||
+              (rackBuildSession.step === 3 && rackBuildSession.slatsDone[sIdx])));
         const crossSlat = new THREE.Mesh(
           new THREE.BoxGeometry(1.52, 0.028, 0.032),
-          bayMat
+          slatSolid ? bayMat : mats.rackUnbuiltGhostMat
         );
         crossSlat.position.set(0, ty - PIPE_RADIUS - 0.026, tz + szOffset);
-        crossSlat.castShadow = isRackBuilt;
+        crossSlat.castShadow = slatSolid;
         dynamicRackGroup.add(crossSlat);
       });
 
       if (!isRackBuilt) {
-        // Translucent unbuilt footprint guide indicating rack needs 5-step assembly
-        const ghostDeck = new THREE.Mesh(
-          new THREE.BoxGeometry(1.36, 0.02, 0.2),
-          mats.rackUnbuiltGhostMat
-        );
-        ghostDeck.position.set(0, ty - PIPE_RADIUS - 0.006, tz);
-        dynamicRackGroup.add(ghostDeck);
+        if (isActivelyAssembling && rackBuildSession && rackBuildSession.step >= 4) {
+          // Step 4 & 5: Drill bed deck + drilled drainage rings + optional liner
+          const deckBoard = new THREE.Mesh(
+            new THREE.BoxGeometry(1.4, 0.012, 0.21),
+            bayMat
+          );
+          deckBoard.position.set(0, ty - PIPE_RADIUS - 0.012, tz);
+          dynamicRackGroup.add(deckBoard);
+
+          if (rackBuildSession.linerDone || rackBuildSession.step === 5) {
+            const linerTray = new THREE.Mesh(
+              new THREE.BoxGeometry(1.42, 0.014, 0.22),
+              mats.rackLinerMat
+            );
+            linerTray.position.set(0, ty - PIPE_RADIUS - 0.004, tz);
+            dynamicRackGroup.add(linerTray);
+          }
+
+          PORT_X_OFFSETS.forEach((px, dIdx) => {
+            if (rackBuildSession.drainsDone[dIdx] || rackBuildSession.step === 5) {
+              const boreHole = new THREE.Mesh(
+                new THREE.CircleGeometry(0.016, 12),
+                mats.darkMetalMat
+              );
+              boreHole.rotation.x = -Math.PI * 0.5;
+              boreHole.position.set(px, ty - PIPE_RADIUS + 0.003, tz);
+              dynamicRackGroup.add(boreHole);
+
+              const drainRing = new THREE.Mesh(
+                new THREE.RingGeometry(0.016, 0.028, 12),
+                drainPortMat
+              );
+              drainRing.rotation.x = -Math.PI * 0.5;
+              drainRing.position.set(px, ty - PIPE_RADIUS + 0.004, tz);
+              dynamicRackGroup.add(drainRing);
+            }
+          });
+        } else {
+          // Translucent unbuilt footprint guide
+          const ghostDeck = new THREE.Mesh(
+            new THREE.BoxGeometry(1.36, 0.02, 0.2),
+            mats.rackUnbuiltGhostMat
+          );
+          ghostDeck.position.set(0, ty - PIPE_RADIUS - 0.006, tz);
+          dynamicRackGroup.add(ghostDeck);
+        }
         continue;
       }
 
@@ -1033,9 +1356,269 @@ export function buildGardenYard(
     }
   };
 
+  const getRackRaycastTargets = (session: RackBuildSessionState | null): THREE.Object3D[] => {
+    if (!session || session.activeRackIndex === null) return [];
+    if (session.step === 2) {
+      return uprightTargets
+        .filter((_, idx) => !session.uprightsDone[idx])
+        .map((t) => t.hitSphere);
+    }
+    if (session.step === 3) {
+      return slatTargets
+        .filter((_, idx) => !session.slatsDone[idx])
+        .map((t) => t.hitSphere);
+    }
+    if (session.step === 4) {
+      const anyHoleLeft = session.drainsDone.some((d) => !d);
+      if (anyHoleLeft) {
+        return drillTargets
+          .filter((_, idx) => !session.drainsDone[idx])
+          .map((t) => t.hitSphere);
+      }
+      if (!session.linerDone) {
+        return [linerTarget.hitSphere];
+      }
+    }
+    return [];
+  };
+
+  const stepRackManualTool = (
+    session: RackBuildSessionState | null,
+    dt: number,
+    time: number,
+    alignedIndex: number | null,
+    isHolding: boolean
+  ): RackManualToolResult => {
+    animWrench.visible = false;
+    animRackDrill.visible = false;
+    animLinerRoll.visible = false;
+    rackShavingsGroup.visible = false;
+
+    if (!session || session.activeRackIndex === null) {
+      return {
+        stepDone: false,
+        subProgress: 0,
+        completedCount: 0,
+        totalCount: 0,
+        subActionLabel: 'Build Rack',
+      };
+    }
+
+    const pulseBullseye = (
+      ringMat: THREE.MeshBasicMaterial,
+      coreMat: THREE.MeshBasicMaterial,
+      isAligned: boolean,
+      phaseOffset: number
+    ) => {
+      if (isAligned) {
+        ringMat.color.setHex(0x34d399);
+        ringMat.opacity = 1.0;
+        coreMat.color.setHex(0x6ee7b7);
+        coreMat.opacity = 0.95;
+      } else {
+        const pulse = 0.72 + Math.sin(time * 4.5 + phaseOffset) * 0.22;
+        ringMat.color.setHex(0xfbbf24);
+        ringMat.opacity = pulse;
+        coreMat.color.setHex(0xfef08a);
+        coreMat.opacity = pulse * 0.85;
+      }
+    };
+
+    // Step 2: 2 Side Uprights
+    if (session.step === 2) {
+      uprightTargets.forEach((t, idx) => {
+        pulseBullseye(t.ringMat, t.coreMat, alignedIndex === idx && !session.uprightsDone[idx], idx);
+      });
+
+      const activeIdx =
+        alignedIndex !== null && alignedIndex >= 0 && alignedIndex < 2 && !session.uprightsDone[alignedIndex]
+          ? alignedIndex
+          : null;
+
+      let justCompleted = false;
+      if (activeIdx !== null) {
+        const ux = activeIdx === 0 ? -0.75 : 0.75;
+        animWrench.visible = true;
+        animWrench.position.set(ux, -0.02, 0.11);
+        animWrench.rotation.z = isHolding ? Math.sin(time * 18) * 0.42 : 0.25;
+
+        if (isHolding) {
+          rackShavingsGroup.visible = true;
+          rackShavingsGroup.position.set(ux, -0.02, 0.08);
+          rackShavingParticles.forEach((p, idx) => {
+            const lt = (time * 2.0 + idx * 0.04) % 0.4;
+            p.mesh.position.set(p.vx * lt, p.vy * lt * 0.7 - 1.2 * lt * lt, p.vz * lt);
+          });
+          workshopAudio.playSawStroke();
+
+          uprightHoldProgress[activeIdx] = Math.min(1, uprightHoldProgress[activeIdx] + dt / 0.65);
+          if (uprightHoldProgress[activeIdx] >= 1) {
+            session.uprightsDone[activeIdx] = true;
+            justCompleted = true;
+            workshopAudio.playSnapComplete();
+          }
+        }
+      }
+
+      const completedCount = session.uprightsDone.filter(Boolean).length;
+      return {
+        stepDone: completedCount === 2,
+        subProgress: activeIdx !== null ? uprightHoldProgress[activeIdx] : 0,
+        completedCount,
+        totalCount: 2,
+        subActionLabel: 'Hold: Fasten Upright',
+        justCompletedSubTarget: justCompleted,
+      };
+    }
+
+    // Step 3: 3 Horizontal Cross Slats
+    if (session.step === 3) {
+      slatTargets.forEach((t, idx) => {
+        pulseBullseye(t.ringMat, t.coreMat, alignedIndex === idx && !session.slatsDone[idx], idx);
+      });
+
+      const activeIdx =
+        alignedIndex !== null && alignedIndex >= 0 && alignedIndex < 3 && !session.slatsDone[alignedIndex]
+          ? alignedIndex
+          : null;
+
+      let justCompleted = false;
+      if (activeIdx !== null) {
+        const sx = SLAT_TARGET_X[activeIdx];
+        animWrench.visible = true;
+        animWrench.position.set(sx, -PIPE_RADIUS + 0.01, 0.14);
+        animWrench.rotation.z = isHolding ? Math.sin(time * 20) * 0.45 : -0.25;
+
+        if (isHolding) {
+          rackShavingsGroup.visible = true;
+          rackShavingsGroup.position.set(sx, -PIPE_RADIUS, 0.11);
+          rackShavingParticles.forEach((p, idx) => {
+            const lt = (time * 2.0 + idx * 0.04) % 0.4;
+            p.mesh.position.set(p.vx * lt, p.vy * lt * 0.7 - 1.2 * lt * lt, p.vz * lt);
+          });
+          workshopAudio.playSawStroke();
+
+          slatHoldProgress[activeIdx] = Math.min(1, slatHoldProgress[activeIdx] + dt / 0.6);
+          if (slatHoldProgress[activeIdx] >= 1) {
+            session.slatsDone[activeIdx] = true;
+            justCompleted = true;
+            workshopAudio.playSnapComplete();
+          }
+        }
+      }
+
+      const completedCount = session.slatsDone.filter(Boolean).length;
+      return {
+        stepDone: completedCount === 3,
+        subProgress: activeIdx !== null ? slatHoldProgress[activeIdx] : 0,
+        completedCount,
+        totalCount: 3,
+        subActionLabel: 'Hold: Attach Cross Slat',
+        justCompletedSubTarget: justCompleted,
+      };
+    }
+
+    // Step 4: 4 Cordless Drill Drainage Holes + 1 Moisture Liner
+    if (session.step === 4) {
+      const allDrainsDone = session.drainsDone.every(Boolean);
+
+      if (!allDrainsDone) {
+        drillTargets.forEach((t, idx) => {
+          pulseBullseye(t.ringMat, t.coreMat, alignedIndex === idx && !session.drainsDone[idx], idx);
+        });
+
+        const activeIdx =
+          alignedIndex !== null && alignedIndex >= 0 && alignedIndex < 4 && !session.drainsDone[alignedIndex]
+            ? alignedIndex
+            : null;
+
+        let justCompleted = false;
+        if (activeIdx !== null) {
+          const px = PORT_X_OFFSETS[activeIdx];
+          animRackDrill.visible = true;
+          const plunge = isHolding ? 0.015 + drillHoldProgress[activeIdx] * 0.04 : 0;
+          animRackDrill.position.set(px, -PIPE_RADIUS + 0.075 - plunge, 0.06);
+
+          if (isHolding) {
+            rdBit.rotation.y += dt * 34;
+            rackShavingsGroup.visible = true;
+            rackShavingsGroup.position.set(px, -PIPE_RADIUS + 0.01, 0.04);
+            rackShavingParticles.forEach((p, idx) => {
+              const lt = (time * 2.2 + idx * 0.05) % 0.45;
+              p.mesh.position.set(p.vx * lt, p.vy * lt * 0.7 - 1.2 * lt * lt, p.vz * lt);
+            });
+            workshopAudio.playDrillPulse();
+
+            drillHoldProgress[activeIdx] = Math.min(1, drillHoldProgress[activeIdx] + dt / 0.68);
+            if (drillHoldProgress[activeIdx] >= 1) {
+              session.drainsDone[activeIdx] = true;
+              justCompleted = true;
+              workshopAudio.playSnapComplete();
+            }
+          }
+        }
+
+        const drilledCount = session.drainsDone.filter(Boolean).length;
+        return {
+          stepDone: false,
+          subProgress: activeIdx !== null ? drillHoldProgress[activeIdx] : 0,
+          completedCount: drilledCount,
+          totalCount: 4,
+          subActionLabel: 'Hold: Drill Drain Hole',
+          justCompletedSubTarget: justCompleted,
+        };
+      }
+
+      // Step 4b: Fit Moisture Liner
+      pulseBullseye(linerTarget.ringMat, linerTarget.coreMat, alignedIndex === 0 && !session.linerDone, 0);
+      const isAlignedLiner = alignedIndex === 0 && !session.linerDone;
+      let justCompleted = false;
+
+      if (isAlignedLiner) {
+        animLinerRoll.visible = true;
+        animLinerRoll.position.set(-0.55 + linerHoldProgress * 1.1, -PIPE_RADIUS + 0.04, 0);
+        animLinerRoll.rotation.z = -linerHoldProgress * 6;
+
+        if (isHolding) {
+          workshopAudio.playPlanting();
+          linerHoldProgress = Math.min(1, linerHoldProgress + dt / 0.62);
+          if (linerHoldProgress >= 1) {
+            session.linerDone = true;
+            justCompleted = true;
+            workshopAudio.playSnapComplete();
+          }
+        }
+      }
+
+      return {
+        stepDone: session.linerDone,
+        subProgress: isAlignedLiner ? linerHoldProgress : 0,
+        completedCount: session.linerDone ? 1 : 0,
+        totalCount: 1,
+        subActionLabel: 'Hold: Fit Moisture Liner',
+        justCompletedSubTarget: justCompleted,
+      };
+    }
+
+    return {
+      stepDone: false,
+      subProgress: 0,
+      completedCount: 0,
+      totalCount: 0,
+      subActionLabel: 'Build Rack',
+    };
+  };
+
   const update = (dt: number, time: number, nowMs: number) => {
     const pulseScale = 1 + Math.sin(time * 3.8) * 0.03;
     rackBeacon.scale.set(pulseScale, pulseScale, 1);
+
+    if (step5Halo.visible) {
+      step5HaloMat.opacity = 0.48 + Math.sin(time * 5.2) * 0.28;
+    }
+    if (swatchCaddy.visible) {
+      swatchBlock.rotation.y = time * 0.7;
+    }
 
     const forecast = WEATHER_FORECASTS[activeWeatherMode] ?? WEATHER_FORECASTS.normal;
     const windSpeed = forecast.windSpeedMult * 3.2;
@@ -1110,6 +1693,9 @@ export function buildGardenYard(
     compostDoorAnchor: new THREE.Vector3(1.45, 0, 4.15),
     setDoorOpenFactors,
     setGardenState,
+    getRackRaycastTargets,
+    stepRackManualTool,
+    resetRackBuildToolProgress,
     update,
     dispose,
   };

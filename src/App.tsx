@@ -12,7 +12,6 @@ import { FarmerLoginOverlay } from './components/FarmerLoginOverlay';
 import { GardenRackPanel } from './components/GardenRackPanel';
 import { LeaderboardModal } from './components/LeaderboardModal';
 import { ParentPortal } from './components/ParentPortal';
-import { RackAssemblyWorkbenchModal } from './components/RackAssemblyWorkbenchModal';
 import { WickExplainerModal } from './components/WickExplainerModal';
 import { WorkshopHud } from './components/WorkshopHud';
 import {
@@ -69,9 +68,11 @@ import {
   type WorkshopHudState,
 } from './workshop/KitchenWorkshopScene';
 import {
+  RACK_MATERIAL_CATALOG,
   getRackMaterialById,
   resizeBuiltRacks,
   type BuiltRackRecord,
+  type RackMaterialId,
 } from './workshop/rackMaterials';
 import { BUILD_STEPS, type BuildStepId, type GradeTier } from './workshop/steps';
 import { workshopVoiceover, type VoiceoverState } from './workshop/voiceover';
@@ -92,6 +93,8 @@ const INITIAL_HUD_STATE: WorkshopHudState = {
   totalSubSteps: 0,
   gardenTarget: null,
   compostTarget: null,
+  rackBuildSession: null,
+  rackSubActionLabel: 'Build Rack',
 };
 
 function toResilienceState(profile: FarmerProfile): GardenResilienceState {
@@ -138,8 +141,8 @@ export function App() {
 
   const [wickModalOpen, setWickModalOpen] = useState(false);
   const [rackPanelOpen, setRackPanelOpen] = useState(false);
-  const [rackWorkbenchOpen, setRackWorkbenchOpen] = useState(false);
-  const [workbenchTargetRackIndex, setWorkbenchTargetRackIndex] = useState(0);
+  const [rackBuilderName, setRackBuilderName] = useState('Farmer');
+  const rackBuilderNameRef = useRef('Farmer');
   const [elNinoHubOpen, setElNinoHubOpen] = useState(false);
   const [rackDropdownOpen, setRackDropdownOpen] = useState(false);
   const [compostModalOpen, setCompostModalOpen] = useState(false);
@@ -152,7 +155,15 @@ export function App() {
 
   useEffect(() => {
     profileRef.current = farmerProfile;
+    if (farmerProfile?.farmerName && rackBuilderNameRef.current === 'Farmer') {
+      rackBuilderNameRef.current = farmerProfile.farmerName;
+      setRackBuilderName(farmerProfile.farmerName);
+    }
   }, [farmerProfile]);
+
+  useEffect(() => {
+    rackBuilderNameRef.current = rackBuilderName;
+  }, [rackBuilderName]);
 
   useEffect(() => {
     systemConfigRef.current = systemConfig;
@@ -259,6 +270,46 @@ export function App() {
         setNowMs(Date.now());
         setElNinoHubOpen(false);
         setRackPanelOpen(true);
+      },
+      onConfirm3DRackBuild: (rackIndex: number, materialId: RackMaterialId, quickBuilt: boolean) => {
+        const matDef = getRackMaterialById(materialId);
+        const isRecyclable = matDef.category === 'recyclable';
+        const builder = rackBuilderNameRef.current.trim() || profileRef.current?.farmerName || 'Farmer';
+        const record: BuiltRackRecord = {
+          rackIndex,
+          materialId,
+          isRecyclable,
+          builderName: builder,
+          builtAtMs: Date.now(),
+          quickBuilt,
+        };
+        workshopAudio.playPourAndBloom();
+        persistProfileUpdate((prev) => {
+          const prevExisting = prev.builtRacks.find((b) => b.rackIndex === rackIndex);
+          const filtered = prev.builtRacks.filter((b) => b.rackIndex !== rackIndex);
+          const nextBuiltRacks = [...filtered, record].sort((a, b) => a.rackIndex - b.rackIndex);
+          const earnedBonus =
+            isRecyclable && !prevExisting?.isRecyclable ? matDef.ecoPoints : 0;
+          const nextEcoPoints = Math.min(100000, prev.ecoBuilderPoints + earnedBonus);
+          sceneRef.current?.syncGardenTiers(
+            prev.rackSize,
+            prev.tiers,
+            toResilienceState(prev),
+            nextBuiltRacks
+          );
+          return {
+            ...prev,
+            builtRacks: nextBuiltRacks,
+            ecoBuilderPoints: nextEcoPoints,
+          };
+        });
+        workshopVoiceover.speakCustom(
+          `Rack ${rackIndex + 1} built in 3D with ${matDef.name} by ${builder}! ${
+            isRecyclable
+              ? 'Eco-Builder bonus points awarded for choosing a recyclable frame.'
+              : 'Ready for your self-watering PVC pipe and seeds!'
+          }`
+        );
       },
       onOpenElNinoHub: () => {
         setRackPanelOpen(false);
@@ -517,7 +568,6 @@ export function App() {
   const handleLogout = useCallback(() => {
     workshopVoiceover.stop();
     setRackPanelOpen(false);
-    setRackWorkbenchOpen(false);
     setElNinoHubOpen(false);
     setCompostModalOpen(false);
     setWickModalOpen(false);
@@ -621,53 +671,13 @@ export function App() {
   );
 
   const handleOpenRackWorkbench = useCallback((rackIndex?: number) => {
-    const snap = profileRef.current;
-    let targetIdx = typeof rackIndex === 'number' ? rackIndex : 0;
-    if (typeof rackIndex !== 'number' && snap) {
-      const builtSet = new Set(snap.builtRacks.map((r) => r.rackIndex));
-      const firstUnbuilt = Array.from({ length: snap.rackSize }, (_, i) => i).find(
-        (i) => !builtSet.has(i)
-      );
-      targetIdx = firstUnbuilt ?? 0;
-    }
-    setWorkbenchTargetRackIndex(targetIdx);
     setRackPanelOpen(false);
     setElNinoHubOpen(false);
-    setRackWorkbenchOpen(true);
+    sceneRef.current?.start3DRackBuild(rackIndex, true);
+    workshopVoiceover.speakCustom(
+      'Choose your frame material below, then aim and hold on the 3D rack targets to fasten, drill drainage holes, and fit the moisture liner!'
+    );
   }, []);
-
-  const handleCompleteRackAssembly = useCallback(
-    (record: BuiltRackRecord) => {
-      const matDef = getRackMaterialById(record.materialId);
-      persistProfileUpdate((prev) => {
-        const prevExisting = prev.builtRacks.find((b) => b.rackIndex === record.rackIndex);
-        const filtered = prev.builtRacks.filter((b) => b.rackIndex !== record.rackIndex);
-        const nextBuiltRacks = [...filtered, record].sort((a, b) => a.rackIndex - b.rackIndex);
-        const earnedBonus =
-          record.isRecyclable && !prevExisting?.isRecyclable ? matDef.ecoPoints : 0;
-        const nextEcoPoints = Math.min(100000, prev.ecoBuilderPoints + earnedBonus);
-        sceneRef.current?.syncGardenTiers(
-          prev.rackSize,
-          prev.tiers,
-          toResilienceState(prev),
-          nextBuiltRacks
-        );
-        return {
-          ...prev,
-          builtRacks: nextBuiltRacks,
-          ecoBuilderPoints: nextEcoPoints,
-        };
-      });
-      workshopVoiceover.speakCustom(
-        `Rack ${record.rackIndex + 1} built with ${matDef.name} by ${record.builderName}! ${
-          record.isRecyclable
-            ? 'Eco-Builder bonus points awarded for choosing a recyclable frame.'
-            : 'Ready for your self-watering PVC pipe and seeds!'
-        }`
-      );
-    },
-    [persistProfileUpdate]
-  );
 
   const handleDeployPipe = useCallback(
     (tierIndex: number) => {
@@ -1156,7 +1166,7 @@ export function App() {
             ? 'JoJo Rain Tank'
             : hudState.gardenTarget === 'weather'
               ? 'El Niño Forecast'
-              : 'Manage Rack & Crops'
+              : hudState.targetLabel
       : hudState.activeZone === 'compost'
         ? hudState.targetLabel
         : currentStep.actionLabel;
@@ -1165,7 +1175,9 @@ export function App() {
     hudState.activeZone === 'garden'
       ? hudState.gardenTarget === 'compost_door' || hudState.gardenTarget === 'kitchen_door'
         ? dualActionLabel
-        : 'Walk to Rack, JoJo or Doors'
+        : hudState.rackBuildSession && hudState.rackBuildSession.activeRackIndex !== null
+          ? hudState.targetLabel
+          : 'Walk to Rack, JoJo or Doors'
       : hudState.targetLabel;
 
   return (
@@ -1236,7 +1248,6 @@ export function App() {
             onOpenRackManager={() => {
               setNowMs(Date.now());
               setElNinoHubOpen(false);
-              setRackWorkbenchOpen(false);
               setRackPanelOpen(true);
             }}
             onOpenRackWorkbench={() => handleOpenRackWorkbench()}
@@ -1323,6 +1334,153 @@ export function App() {
               )}
             </>
           )}
+          {/* Compact Non-Blocking 3D Garden Rack Assembly & Drill Bar */}
+          {hudState.activeZone === 'garden' &&
+            !hudState.isBusy &&
+            !rackPanelOpen &&
+            !elNinoHubOpen &&
+            hudState.rackBuildSession &&
+            hudState.rackBuildSession.activeRackIndex !== null && (() => {
+              const sess = hudState.rackBuildSession!;
+              const rackIdx = sess.activeRackIndex!;
+              const selectedMat = getRackMaterialById(sess.materialId);
+              const drainsDoneCount = sess.drainsDone.filter(Boolean).length;
+              const isDoorTargetActive =
+                hudState.gardenTarget === 'kitchen_door' || hudState.gardenTarget === 'compost_door';
+              if (isDoorTargetActive) return null;
+
+              if (sess.step === 1) {
+                const coopPresets = Array.from(
+                  new Set([farmerProfile.farmerName, 'Teammate 2', 'Teammate 3'])
+                );
+                return (
+                  <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-20 w-[min(92vw,44rem)] rounded-2xl bg-slate-950/92 border border-amber-500/45 px-3 py-2.5 shadow-2xl space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono font-bold text-amber-300 uppercase">
+                          3D Rack {rackIdx + 1}/{farmerProfile.rackSize} · Step 1/5 Material
+                        </span>
+                        <div className="flex items-center gap-1">
+                          {coopPresets.map((name) => (
+                            <button
+                              key={name}
+                              type="button"
+                              onClick={() => setRackBuilderName(name)}
+                              className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border cursor-pointer whitespace-nowrap shrink-0 ${
+                                rackBuilderName === name
+                                  ? 'bg-emerald-600 text-white border-emerald-400'
+                                  : 'bg-slate-900 text-slate-300 border-slate-700 hover:text-white'
+                              }`}
+                            >
+                              {name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => sceneRef.current?.quickBuildActiveRack()}
+                        className="text-[11px] font-mono text-slate-400 hover:text-amber-300 underline cursor-pointer whitespace-nowrap shrink-0"
+                      >
+                        Quick-Build / Demo Skip
+                      </button>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {RACK_MATERIAL_CATALOG.map((mat) => {
+                        const active = sess.materialId === mat.id;
+                        const recyclable = mat.category === 'recyclable';
+                        return (
+                          <button
+                            key={mat.id}
+                            type="button"
+                            onClick={() => sceneRef.current?.set3DRackBuildMaterial(mat.id)}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                              active
+                                ? recyclable
+                                  ? 'bg-emerald-600 text-white border-emerald-300'
+                                  : 'bg-sky-600 text-white border-sky-300'
+                                : 'bg-slate-900 text-slate-200 border-slate-700 hover:border-slate-500'
+                            }`}
+                          >
+                            {mat.shortName}
+                            {recyclable ? ` +${mat.ecoPoints}` : ''}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-800/80 text-[11px]">
+                      <div className="text-slate-300 leading-snug min-w-0 flex-1">
+                        <span className={selectedMat.category === 'recyclable' ? 'text-emerald-300 font-semibold' : 'text-sky-300 font-semibold'}>
+                          {selectedMat.name}:
+                        </span>{' '}
+                        {selectedMat.sustainabilityTip} ·{' '}
+                        <span className="text-slate-400">{selectedMat.costSavingTip}</span> ·{' '}
+                        <span className="text-amber-200/90">{selectedMat.durabilityTip}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => sceneRef.current?.begin3DRackAssemblyStep2()}
+                        className="px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold cursor-pointer whitespace-nowrap shrink-0"
+                      >
+                        Start 3D Build →
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+
+              if (sess.step === 5) {
+                return (
+                  <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center justify-center gap-3 rounded-xl bg-slate-950/92 border border-emerald-400 px-3.5 py-2 shadow-2xl">
+                    <div className="text-xs text-slate-100">
+                      <span className="font-mono font-bold text-emerald-300">
+                        Rack {rackIdx + 1}/{farmerProfile.rackSize} Complete ·
+                      </span>{' '}
+                      <span>{selectedMat.shortName}</span>
+                      {selectedMat.category === 'recyclable' && (
+                        <span className="text-emerald-300 font-mono font-bold ml-1.5">
+                          +{selectedMat.ecoPoints} Eco-Builder pts
+                        </span>
+                      )}
+                      <span className="text-slate-400 ml-1.5">by {rackBuilderName}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => sceneRef.current?.confirmCurrentRackPlacement()}
+                      className="px-3.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold cursor-pointer whitespace-nowrap shrink-0"
+                    >
+                      Confirm &amp; Place Rack {rackIdx + 1}
+                    </button>
+                  </div>
+                );
+              }
+
+              const stepInstruction =
+                sess.step === 2
+                  ? `Step 2/5 Uprights (${sess.uprightsDone.filter(Boolean).length}/2): Aim crosshair at yellow rings & hold E / Action`
+                  : sess.step === 3
+                    ? `Step 3/5 Cross Slats (${sess.slatsDone.filter(Boolean).length}/3): Aim crosshair at front slat rings & hold E / Action`
+                    : drainsDoneCount < 4
+                      ? `Step 4/5 3D Cordless Drill (${drainsDoneCount}/4 Holes): Aim at yellow marks & hold E / Action`
+                      : `Step 4/5 Waterproof Liner (0/1): Aim at center mark & hold E / Action`;
+
+              return (
+                <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center justify-center gap-2.5 rounded-xl bg-slate-950/90 border border-amber-400/55 px-3 py-1.5 shadow-lg max-w-[90vw]">
+                  <span className="text-xs font-semibold text-amber-100 tabular-nums">
+                    Rack {rackIdx + 1}/{farmerProfile.rackSize} · {stepInstruction}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => sceneRef.current?.quickBuildActiveRack()}
+                    className="text-[11px] font-mono text-slate-400 hover:text-amber-300 underline cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    Demo Skip
+                  </button>
+                </div>
+              );
+            })()}
         </>
       )}
 
@@ -1404,26 +1562,6 @@ export function App() {
             setElNinoHubOpen(true);
           }}
           onSwitchToCompost={() => handleGuideToDoor('compost')}
-        />
-      )}
-
-      {/* 5-Step Interactive Garden Rack Assembly Workbench */}
-      {farmerProfile && (
-        <RackAssemblyWorkbenchModal
-          open={rackWorkbenchOpen}
-          targetRackIndex={workbenchTargetRackIndex}
-          rackSize={farmerProfile.rackSize}
-          builtRacks={farmerProfile.builtRacks}
-          farmerName={farmerProfile.farmerName}
-          ecoBuilderPoints={farmerProfile.ecoBuilderPoints}
-          onSelectTargetRack={(idx) => setWorkbenchTargetRackIndex(idx)}
-          onCompleteRackAssembly={handleCompleteRackAssembly}
-          onClose={() => setRackWorkbenchOpen(false)}
-          onProceedToPlanting={() => {
-            setRackWorkbenchOpen(false);
-            setNowMs(Date.now());
-            setRackPanelOpen(true);
-          }}
         />
       )}
 
