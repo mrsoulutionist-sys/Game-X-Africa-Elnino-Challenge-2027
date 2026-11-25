@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - master
   workflow_dispatch:
 
 permissions:
@@ -27,13 +28,22 @@ jobs:
         with:
           node-version: '24'
 
+      - name: Setup Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
       - name: Install dependencies
         run: npm install --legacy-peer-deps --no-audit --no-fund
 
       - name: Type-check TypeScript
         run: npm run lint
 
+      - name: Validate Firestore security rules
+        run: npx eslint firestore.rules
+
       - name: Build production bundle
+        env:
+          VITE_BASE_PATH: ${{ steps.pages.outputs.base_path }}
         run: npm run build
 
       - name: Upload Pages artifact

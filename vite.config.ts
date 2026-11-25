@@ -7,9 +7,28 @@ import { defineConfig } from 'vite';
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
+function normalizeBasePath(raw?: string): string {
+  const trimmed = (raw ?? '').trim();
+  if (!trimmed || trimmed === '/') return '/';
+  const withLeading = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  return withLeading.endsWith('/') ? withLeading : `${withLeading}/`;
+}
+
+function resolveProductionBase(): string {
+  if (process.env.VITE_BASE_PATH !== undefined && process.env.VITE_BASE_PATH !== '') {
+    return normalizeBasePath(process.env.VITE_BASE_PATH);
+  }
+  const ghRepo = process.env.GITHUB_REPOSITORY;
+  if (ghRepo && ghRepo.includes('/')) {
+    const repoName = ghRepo.split('/')[1];
+    if (repoName) return normalizeBasePath(repoName);
+  }
+  return '/Game-X-Africa-Elnino-Challenge-2027/';
+}
+
 export default defineConfig(({ command }) => {
   return {
-    base: command === 'build' ? '/Game-X-Africa-Elnino-Challenge-2027/' : '/',
+    base: command === 'build' ? resolveProductionBase() : '/',
     build: {
       outDir: 'dist',
       emptyOutDir: true,
@@ -18,20 +37,32 @@ export default defineConfig(({ command }) => {
     plugins: [
       react(),
       tailwindcss(),
-      // Copies src/assets into dist/ so root-relative URLs still resolve
-      // in production builds.
+      // Ensures static GitHub Pages builds have .nojekyll, SPA 404 fallback, and unbundled src/assets.
       {
-        name: 'copy-unbundled-src-assets',
+        name: 'github-pages-static-assets',
         apply: 'build',
         closeBundle(error?: Error): void {
           if (error) {
             return;
           }
           const distDir = path.resolve(rootDir, 'dist');
+          if (!fs.existsSync(distDir)) return;
+
           const srcAssets = path.resolve(rootDir, 'src/assets');
           const distAssets = path.resolve(distDir, 'src/assets');
-          if (fs.existsSync(distDir) && fs.existsSync(srcAssets)) {
+          if (fs.existsSync(srcAssets)) {
             fs.cpSync(srcAssets, distAssets, { recursive: true, force: true });
+          }
+
+          const indexHtml = path.resolve(distDir, 'index.html');
+          const notFoundHtml = path.resolve(distDir, '404.html');
+          if (fs.existsSync(indexHtml)) {
+            fs.copyFileSync(indexHtml, notFoundHtml);
+          }
+
+          const nojekyllPath = path.resolve(distDir, '.nojekyll');
+          if (!fs.existsSync(nojekyllPath)) {
+            fs.writeFileSync(nojekyllPath, '');
           }
         },
       },

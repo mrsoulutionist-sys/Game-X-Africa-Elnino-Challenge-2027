@@ -418,8 +418,11 @@ export function clusterSchoolNames(
         break;
       }
 
-      // Fuzzy typo match only on meaningful stems sharing opening prefix
+      // Fuzzy typo match only on meaningful stems sharing opening prefix and identical numbers
+      const entryDigits = compactStem.replace(/\D+/g, '');
+      const clusterDigits = clusterCompact.replace(/\D+/g, '');
       if (
+        entryDigits === clusterDigits &&
         compactStem.length >= 4 &&
         clusterCompact.length >= 4 &&
         compactStem.slice(0, 3) === clusterCompact.slice(0, 3)
@@ -487,10 +490,18 @@ export function clusterSchoolNames(
     let bestVariant = '';
     let bestScore = -1;
     const matchedVariants: string[] = [];
+    const normTotals = new Map<string, number>();
+
+    for (const [rawStr, count] of ic.rawCounts.entries()) {
+      const nf = canonicalizeSchoolName(rawStr).normalizedFull;
+      normTotals.set(nf, (normTotals.get(nf) ?? 0) + count);
+    }
 
     for (const [rawStr, count] of ic.rawCounts.entries()) {
       matchedVariants.push(rawStr);
-      const s = scoreDisplayCandidate(rawStr, count);
+      const nf = canonicalizeSchoolName(rawStr).normalizedFull;
+      const collectiveWeight = normTotals.get(nf) ?? count;
+      const s = scoreDisplayCandidate(rawStr, collectiveWeight * 10 + count);
       if (s > bestScore) {
         bestScore = s;
         bestVariant = rawStr;
