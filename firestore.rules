@@ -43,6 +43,51 @@ service cloud.firestore {
         );
     }
 
+    function isValidBuiltRackList(builtRacks) {
+      return builtRacks is list
+        && builtRacks.size() <= 6
+        && (
+          builtRacks.size() == 0
+          || (
+            builtRacks[0] is map
+            && builtRacks[0].keys().hasAll([
+              'rackIndex',
+              'materialId',
+              'isRecyclable',
+              'builderName',
+              'builtAtMs',
+              'quickBuilt'
+            ])
+            && builtRacks[0].keys().hasOnly([
+              'rackIndex',
+              'materialId',
+              'isRecyclable',
+              'builderName',
+              'builtAtMs',
+              'quickBuilt'
+            ])
+            && builtRacks[0].rackIndex is int
+            && builtRacks[0].rackIndex >= 0
+            && builtRacks[0].rackIndex <= 5
+            && builtRacks[0].materialId in [
+              'reclaimed_pvc',
+              'pallet_wood',
+              'scrap_metal',
+              'upcycled_hdpe',
+              'standard_pvc',
+              'standard_timber'
+            ]
+            && builtRacks[0].isRecyclable is bool
+            && builtRacks[0].builderName is string
+            && builtRacks[0].builderName.size() >= 1
+            && builtRacks[0].builderName.size() <= 40
+            && builtRacks[0].builtAtMs is int
+            && builtRacks[0].builtAtMs >= 0
+            && builtRacks[0].quickBuilt is bool
+          )
+        );
+    }
+
     function isValidGrade(g) {
       return g in [
         'Grade 4',
@@ -76,7 +121,9 @@ service cloud.firestore {
         && (!('door3MulchStep' in data) || (data.door3MulchStep is int && data.door3MulchStep >= 0 && data.door3MulchStep <= 4))
         && (!('compostYieldsSinceRefresh' in data) || (data.compostYieldsSinceRefresh is int && data.compostYieldsSinceRefresh >= 0 && data.compostYieldsSinceRefresh <= 50))
         && (!('compostCycleCount' in data) || (data.compostCycleCount is int && data.compostCycleCount >= 0 && data.compostCycleCount <= 10000))
-        && (!('bestCompetitionMs' in data) || data.bestCompetitionMs == null || (data.bestCompetitionMs is int && data.bestCompetitionMs >= 0 && data.bestCompetitionMs <= 86400000));
+        && (!('bestCompetitionMs' in data) || data.bestCompetitionMs == null || (data.bestCompetitionMs is int && data.bestCompetitionMs >= 0 && data.bestCompetitionMs <= 86400000))
+        && (!('builtRacks' in data) || isValidBuiltRackList(data.builtRacks))
+        && (!('ecoBuilderPoints' in data) || (data.ecoBuilderPoints is int && data.ecoBuilderPoints >= 0 && data.ecoBuilderPoints <= 100000));
     }
 
     function isValidStudentMetaFields(data) {
@@ -126,6 +173,8 @@ service cloud.firestore {
           'compostYieldsSinceRefresh',
           'compostCycleCount',
           'bestCompetitionMs',
+          'builtRacks',
+          'ecoBuilderPoints',
           'role',
           'schoolName',
           'schoolKey',
@@ -144,7 +193,7 @@ service cloud.firestore {
         && data.kitchenStep.size() >= 3
         && data.kitchenStep.size() <= 40
         && data.rackSize is int
-        && data.rackSize >= 2
+        && data.rackSize >= 1
         && data.rackSize <= 6
         && isValidTierList(data.tiers)
         && data.totalHarvestedCount is int
@@ -1028,6 +1077,8 @@ service cloud.firestore {
           'compostYieldsSinceRefresh',
           'compostCycleCount',
           'bestCompetitionMs',
+          'builtRacks',
+          'ecoBuilderPoints',
           'role',
           'schoolName',
           'schoolKey',

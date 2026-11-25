@@ -23,6 +23,11 @@ import {
   type WeatherMode,
 } from '../workshop/crops';
 import type { BuildStepId } from '../workshop/steps';
+import {
+  calculateEcoBuilderPoints,
+  sanitizeBuiltRacks,
+  type BuiltRackRecord,
+} from '../workshop/rackMaterials';
 import { syncLeaderboardStudent } from './leaderboardService';
 
 export type ActiveZone = 'kitchen' | 'garden' | 'compost';
@@ -95,6 +100,8 @@ export interface FarmerProfile {
   compostYieldsSinceRefresh: number;
   compostCycleCount: number;
   bestCompetitionMs?: number | null;
+  builtRacks: BuiltRackRecord[];
+  ecoBuilderPoints: number;
   role?: 'student';
   schoolName?: string;
   schoolKey?: string;
@@ -299,7 +306,7 @@ function serializeDoor3(door3: Door3ProgressState) {
 }
 
 function sanitizeTiers(rawTiers: unknown, rackSize: number): TierSaveState[] {
-  const clampedSize = Math.max(2, Math.min(6, Math.round(rackSize || 2)));
+  const clampedSize = Math.max(1, Math.min(6, Math.round(rackSize || 2)));
   const arr = Array.isArray(rawTiers) ? rawTiers : [];
   const result: TierSaveState[] = [];
   for (let i = 0; i < clampedSize; i++) {
@@ -456,7 +463,7 @@ export async function loginOrCreateFarmer(
   if (snap.exists()) {
     const data = snap.data() as Record<string, unknown>;
     const rackSize =
-      typeof data.rackSize === 'number' ? Math.max(2, Math.min(6, Math.round(data.rackSize))) : 2;
+      typeof data.rackSize === 'number' ? Math.max(1, Math.min(6, Math.round(data.rackSize))) : 2;
     const rawStep = String(data.kitchenStep || 'GET_SAW') as BuildStepId;
     const kitchenStep: BuildStepId = VALID_KITCHEN_STEPS.has(rawStep) ? rawStep : 'GET_SAW';
     const activeZone: ActiveZone =
@@ -506,13 +513,26 @@ export async function loginOrCreateFarmer(
     const resolvedTeacher =
       cleanTeacherName || (typeof data.teacherName === 'string' ? data.teacherName : undefined);
 
+    const resolvedFarmerName = String(data.farmerName || farmerName).slice(0, 40);
+    const sanitizedTiers = sanitizeTiers(data.tiers, rackSize);
+    const sanitizedBuiltRacks = sanitizeBuiltRacks(
+      data.builtRacks,
+      sanitizedTiers,
+      rackSize,
+      resolvedFarmerName
+    );
+    const resolvedEcoPoints = calculateEcoBuilderPoints(
+      sanitizedBuiltRacks,
+      data.ecoBuilderPoints
+    );
+
     const profile: FarmerProfile = {
       farmerKey,
-      farmerName: String(data.farmerName || farmerName).slice(0, 40),
+      farmerName: resolvedFarmerName,
       activeZone,
       kitchenStep,
       rackSize,
-      tiers: sanitizeTiers(data.tiers, rackSize),
+      tiers: sanitizedTiers,
       totalHarvestedCount:
         typeof data.totalHarvestedCount === 'number' ? Math.max(0, data.totalHarvestedCount) : 0,
       jojoInstalled: Boolean(data.jojoInstalled),
@@ -532,6 +552,8 @@ export async function loginOrCreateFarmer(
         typeof data.bestCompetitionMs === 'number' && data.bestCompetitionMs >= 0
           ? Math.min(86400000, Math.round(data.bestCompetitionMs))
           : null,
+      builtRacks: sanitizedBuiltRacks,
+      ecoBuilderPoints: resolvedEcoPoints,
       role: 'student',
       ...(resolvedSchoolName ? { schoolName: resolvedSchoolName } : {}),
       ...(resolvedSchoolKey ? { schoolKey: resolvedSchoolKey } : {}),
@@ -577,6 +599,8 @@ export async function loginOrCreateFarmer(
     compostYieldsSinceRefresh: 0,
     compostCycleCount: 0,
     bestCompetitionMs: null,
+    builtRacks: [],
+    ecoBuilderPoints: 0,
     role: 'student',
     ...(cleanSchoolName ? { schoolName: cleanSchoolName, schoolKey } : {}),
     ...(cleanGrade ? { grade: cleanGrade } : {}),
@@ -743,8 +767,18 @@ export async function saveFarmerProgress(profile: FarmerProfile): Promise<void> 
   const path = `farmers/${profile.farmerKey}`;
   const ref = doc(db, 'farmers', profile.farmerKey);
 
-  const rackSize = Math.max(2, Math.min(6, Math.round(profile.rackSize)));
+  const rackSize = Math.max(1, Math.min(6, Math.round(profile.rackSize)));
   const cleanTiers = sanitizeTiers(profile.tiers, rackSize);
+  const cleanBuiltRacks = sanitizeBuiltRacks(
+    profile.builtRacks,
+    cleanTiers,
+    rackSize,
+    profile.farmerName
+  );
+  const cleanEcoBuilderPoints = calculateEcoBuilderPoints(
+    cleanBuiltRacks,
+    profile.ecoBuilderPoints
+  );
   const jojoCapacity = Math.max(20, Math.min(500, profile.jojoCapacity || 60));
 
   try {
@@ -754,6 +788,8 @@ export async function saveFarmerProgress(profile: FarmerProfile): Promise<void> 
       kitchenStep: profile.kitchenStep,
       rackSize,
       tiers: cleanTiers,
+      builtRacks: cleanBuiltRacks,
+      ecoBuilderPoints: cleanEcoBuilderPoints,
       totalHarvestedCount: Math.max(0, Math.round(profile.totalHarvestedCount)),
       jojoInstalled: Boolean(profile.jojoInstalled),
       jojoLitres: Math.max(0, Math.min(jojoCapacity, Math.round(profile.jojoLitres * 10) / 10)),
@@ -783,7 +819,7 @@ export async function saveFarmerProgress(profile: FarmerProfile): Promise<void> 
 }
 
 export function resizeTierArray(existing: TierSaveState[], nextSize: number): TierSaveState[] {
-  const clamped = Math.max(2, Math.min(6, Math.round(nextSize)));
+  const clamped = Math.max(1, Math.min(6, Math.round(nextSize)));
   const next: TierSaveState[] = [];
   for (let i = 0; i < clamped; i++) {
     next.push(existing[i] ? { ...existing[i], tierIndex: i } : createEmptyTier(i));

@@ -9,6 +9,7 @@ import {
 } from './crops';
 import type { AABB } from './kitchenRoomBuilder';
 import type { WorkshopMaterials } from './materials';
+import type { BuiltRackRecord, RackMaterialId } from './rackMaterials';
 import {
   buildGardenSignage,
   createPropBrandPlaque,
@@ -39,7 +40,8 @@ export interface GardenYardHandle {
     rackSize: number,
     tiers: TierSaveState[],
     cutawayMode: boolean,
-    resilience?: GardenResilienceState
+    resilience?: GardenResilienceState,
+    builtRacks?: BuiltRackRecord[]
   ) => void;
   update: (dt: number, time: number, nowMs: number) => void;
   dispose: () => void;
@@ -189,6 +191,18 @@ export function buildGardenYard(
     emissiveIntensity: 0.95,
     roughness: 0.28,
   });
+  const harvestRingMat = new THREE.MeshBasicMaterial({
+    color: 0xfbbf24,
+    transparent: true,
+    opacity: 0.8,
+    side: THREE.DoubleSide,
+  });
+  const drainPortMat = new THREE.MeshBasicMaterial({
+    color: 0x38bdf8,
+    transparent: true,
+    opacity: 0.72,
+    side: THREE.DoubleSide,
+  });
   disposables.push(
     patioMat,
     grassMat,
@@ -196,7 +210,9 @@ export function buildGardenYard(
     emptyBracketMat,
     jojoGreenMat,
     shadeNetMat,
-    weatherDomeMat
+    weatherDomeMat,
+    harvestRingMat,
+    drainPortMat
   );
 
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(24, 24), grassMat);
@@ -649,13 +665,33 @@ export function buildGardenYard(
     tierVisuals = [];
   };
 
+  const resolveRackFrameMat = (materialId: RackMaterialId): THREE.Material => {
+    switch (materialId) {
+      case 'reclaimed_pvc':
+        return mats.rackReclaimedPvcMat;
+      case 'pallet_wood':
+        return mats.rackPalletWoodMat;
+      case 'scrap_metal':
+        return mats.rackScrapMetalMat;
+      case 'upcycled_hdpe':
+        return mats.rackUpcycledHdpeMat;
+      case 'standard_pvc':
+        return mats.rackStandardPvcMat;
+      case 'standard_timber':
+        return mats.rackStandardTimberMat;
+      default:
+        return mats.darkMetalMat;
+    }
+  };
+
   const setGardenState = (
     rackSize: number,
     tiers: TierSaveState[],
     cutawayMode: boolean,
-    resilience?: GardenResilienceState
+    resilience?: GardenResilienceState,
+    builtRacks?: BuiltRackRecord[]
   ) => {
-    const clampedSize = Math.max(2, Math.min(6, rackSize));
+    const clampedSize = Math.max(1, Math.min(6, rackSize));
     const jojoInstalled = resilience?.jojoInstalled ?? false;
     const jojoLitres = resilience?.jojoLitres ?? 18;
     const jojoCapacity = resilience?.jojoCapacity ?? 60;
@@ -703,10 +739,16 @@ export function buildGardenYard(
       shadePlaque.position.set(0, topHeightPreview + 0.34, 0.51);
     }
 
+    const builtMap = new Map<number, BuiltRackRecord>();
+    if (Array.isArray(builtRacks)) {
+      builtRacks.forEach((b) => builtMap.set(b.rackIndex, b));
+    }
+
     const sig = JSON.stringify({
       clampedSize,
       cutawayMode,
       shadeClothInstalled,
+      built: Array.from({ length: clampedSize }, (_, idx) => builtMap.get(idx)?.materialId ?? 'unbuilt'),
       tiers: tiers.map((t) => ({
         i: t.tierIndex,
         p: t.pipeInstalled,
@@ -725,33 +767,35 @@ export function buildGardenYard(
     clearDynamicRack();
 
     const topHeight = 0.45 + (clampedSize - 1) * 0.31 + 0.25;
+    const firstBuilt = builtMap.get(0) ?? builtRacks?.[0];
+    const spineMat = firstBuilt ? resolveRackFrameMat(firstBuilt.materialId) : mats.rackUnbuiltGhostMat;
 
-    // A-frame steel uprights on left & right
+    // A-frame spine uprights on left & right (tinted/textured to primary built material, or ghost outline if none built)
     [-0.78, 0.78].forEach((ux) => {
       const frontLeg = new THREE.Mesh(
         new THREE.BoxGeometry(0.055, topHeight + 0.1, 0.055),
-        mats.darkMetalMat
+        spineMat
       );
       frontLeg.position.set(ux, topHeight * 0.5, 0.12);
       frontLeg.rotation.x = -0.14;
-      frontLeg.castShadow = true;
+      frontLeg.castShadow = Boolean(firstBuilt);
       dynamicRackGroup.add(frontLeg);
 
       const backLeg = new THREE.Mesh(
         new THREE.BoxGeometry(0.055, topHeight + 0.08, 0.055),
-        mats.darkMetalMat
+        spineMat
       );
       backLeg.position.set(ux, topHeight * 0.5, -0.34);
       backLeg.rotation.x = 0.16;
-      backLeg.castShadow = true;
+      backLeg.castShadow = Boolean(firstBuilt);
       dynamicRackGroup.add(backLeg);
 
-      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.04, 0.92), mats.darkMetalMat);
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.04, 0.92), spineMat);
       foot.position.set(ux, 0.02, -0.1);
       dynamicRackGroup.add(foot);
     });
 
-    const topBar = new THREE.Mesh(new THREE.BoxGeometry(1.64, 0.05, 0.05), mats.darkMetalMat);
+    const topBar = new THREE.Mesh(new THREE.BoxGeometry(1.64, 0.05, 0.05), spineMat);
     topBar.position.set(0, topHeight - 0.04, -0.11);
     dynamicRackGroup.add(topBar);
 
@@ -790,17 +834,68 @@ export function buildGardenYard(
         waterDurationHours: 84,
         harvested: false,
       };
+      const builtSpec = builtMap.get(i);
+      const isRackBuilt = Boolean(builtSpec);
+      const bayMat = builtSpec ? resolveRackFrameMat(builtSpec.materialId) : mats.rackUnbuiltGhostMat;
       const ty = 0.4 + i * 0.31;
       const tz = 0.24 - i * 0.095;
 
+      // 2 Vertical Side Upright Bay Brackets in the rack's chosen material (or ghost wireframe)
+      [-0.75, 0.75].forEach((ux) => {
+        const bayUpright = new THREE.Mesh(
+          new THREE.BoxGeometry(0.068, 0.26, 0.08),
+          bayMat
+        );
+        bayUpright.position.set(ux, ty - 0.02, tz);
+        bayUpright.castShadow = isRackBuilt;
+        dynamicRackGroup.add(bayUpright);
+      });
+
+      // 3 Horizontal Cross Slats (Front, Center, Rear) spanning between uprights
+      [-0.085, 0, 0.085].forEach((szOffset) => {
+        const crossSlat = new THREE.Mesh(
+          new THREE.BoxGeometry(1.52, 0.028, 0.032),
+          bayMat
+        );
+        crossSlat.position.set(0, ty - PIPE_RADIUS - 0.026, tz + szOffset);
+        crossSlat.castShadow = isRackBuilt;
+        dynamicRackGroup.add(crossSlat);
+      });
+
+      if (!isRackBuilt) {
+        // Translucent unbuilt footprint guide indicating rack needs 5-step assembly
+        const ghostDeck = new THREE.Mesh(
+          new THREE.BoxGeometry(1.36, 0.02, 0.2),
+          mats.rackUnbuiltGhostMat
+        );
+        ghostDeck.position.set(0, ty - PIPE_RADIUS - 0.006, tz);
+        dynamicRackGroup.add(ghostDeck);
+        continue;
+      }
+
+      // Fitted Waterproof Moisture Liner & 4 Drilled Drainage Ports on assembled rack bay
+      const linerTray = new THREE.Mesh(
+        new THREE.BoxGeometry(1.42, 0.014, 0.22),
+        mats.rackLinerMat
+      );
+      linerTray.position.set(0, ty - PIPE_RADIUS - 0.008, tz);
+      dynamicRackGroup.add(linerTray);
+
+      PORT_X_OFFSETS.forEach((px) => {
+        const drainRing = new THREE.Mesh(
+          new THREE.RingGeometry(0.012, 0.022, 12),
+          drainPortMat
+        );
+        drainRing.rotation.x = -Math.PI * 0.5;
+        drainRing.position.set(px, ty - PIPE_RADIUS + 0.001, tz);
+        dynamicRackGroup.add(drainRing);
+      });
+
       [-0.45, 0.45].forEach((cx) => {
-        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.03, 0.22), mats.stainlessMat);
-        arm.position.set(cx, ty - PIPE_RADIUS - 0.015, tz);
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.026, 0.21), mats.stainlessMat);
+        arm.position.set(cx, ty - PIPE_RADIUS - 0.002, tz);
         dynamicRackGroup.add(arm);
       });
-      const tierBar = new THREE.Mesh(new THREE.BoxGeometry(1.58, 0.03, 0.035), mats.darkMetalMat);
-      tierBar.position.set(0, ty - PIPE_RADIUS - 0.025, tz);
-      dynamicRackGroup.add(tierBar);
 
       if (!tier.pipeInstalled) {
         const ghostPipe = new THREE.Mesh(
@@ -869,13 +964,12 @@ export function buildGardenYard(
 
       const harvestRing = new THREE.Mesh(
         new THREE.RingGeometry(0.56, 0.6, 4),
-        new THREE.MeshBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.8, side: THREE.DoubleSide })
+        harvestRingMat
       );
       harvestRing.rotation.x = -Math.PI * 0.5;
       harvestRing.position.y = PIPE_RADIUS + 0.015;
       harvestRing.visible = false;
       pipeGroup.add(harvestRing);
-      disposables.push(harvestRing.material as THREE.Material);
 
       const cropDef = getCropById(tier.cropId);
       const sprouts: THREE.Group[] = [];

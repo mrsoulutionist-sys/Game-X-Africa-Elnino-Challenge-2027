@@ -31,7 +31,7 @@
         },
         "rackSize": {
           "type": "integer",
-          "description": "Selected vertical rack stand capacity (2 to 6 PVC pipe tiers)."
+          "description": "Selected vertical rack stand capacity (1 to 6 garden racks / PVC pipe tiers)."
         },
         "tiers": {
           "type": "array",
@@ -143,6 +143,14 @@
         "bestCompetitionMs": {
           "type": "integer",
           "description": "Fastest speed-run elapsed milliseconds recorded when Admin competition timer is enabled."
+        },
+        "builtRacks": {
+          "type": "array",
+          "description": "Bounded list (max 6) of assembled garden racks with material choice, recyclability flag, co-op builder name, and build timestamp."
+        },
+        "ecoBuilderPoints": {
+          "type": "integer",
+          "description": "Cumulative Eco-Builder bonus points awarded for assembling garden racks with recyclable materials."
         },
         "createdAt": {
           "type": "string",

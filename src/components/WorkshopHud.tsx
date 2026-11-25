@@ -21,6 +21,7 @@ import {
   Trophy,
   X,
   Footprints,
+  Hammer,
 } from 'lucide-react';
 import {
   BANNER_STAGE_OPTIONS,
@@ -53,6 +54,9 @@ interface WorkshopHudProps {
   windbreakInstalled: boolean;
   stormBraceInstalled: boolean;
   tiers: TierSaveState[];
+  rackSize: number;
+  builtRacksCount: number;
+  ecoBuilderPoints: number;
   door3: Door3ProgressState;
   compostYieldsSinceRefresh: number;
   compostYieldCycleLimit: number;
@@ -74,6 +78,7 @@ interface WorkshopHudProps {
   onReset: () => void;
   onOpenWickExplainer: () => void;
   onOpenRackManager: () => void;
+  onOpenRackWorkbench: () => void;
   onOpenElNinoHub: () => void;
   onOpenCompostStation: (workstation?: 1 | 2 | 3) => void;
   onOpenAdminDocs: () => void;
@@ -100,6 +105,9 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
   windbreakInstalled,
   stormBraceInstalled,
   tiers,
+  rackSize,
+  builtRacksCount,
+  ecoBuilderPoints,
   door3,
   compostYieldsSinceRefresh,
   compostYieldCycleLimit,
@@ -121,6 +129,7 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
   onReset,
   onOpenWickExplainer,
   onOpenRackManager,
+  onOpenRackWorkbench,
   onOpenElNinoHub,
   onOpenCompostStation,
   onOpenAdminDocs,
@@ -329,19 +338,36 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
               <button
                 type="button"
                 onClick={onOpenRackManager}
-                className="flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400 px-3 py-2 text-xs font-semibold shadow-lg transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400 px-3 py-2 text-xs font-semibold shadow-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
                 <Sprout className="w-3.5 h-3.5" />
                 <span>Vertical Rack</span>
                 <span className="ml-0.5 px-1.5 py-0.5 rounded bg-slate-950/40 text-emerald-100 font-mono text-[10px] tabular-nums">
-                  {yieldsRemaining}/{safeLimit}
+                  {builtRacksCount}/{rackSize} · {yieldsRemaining}/{safeLimit}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={onOpenRackWorkbench}
+                className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold border shadow-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  builtRacksCount < rackSize
+                    ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 border-amber-300 font-bold'
+                    : 'bg-slate-950/90 hover:bg-slate-900 text-emerald-300 border-emerald-500/40'
+                }`}
+              >
+                <Hammer className="w-3.5 h-3.5" />
+                <span>
+                  {builtRacksCount < rackSize
+                    ? `Assemble Racks (${builtRacksCount}/${rackSize})`
+                    : `Rack Builder · ${ecoBuilderPoints} pts`}
                 </span>
               </button>
 
               <button
                 type="button"
                 onClick={onOpenElNinoHub}
-                className="flex items-center gap-1.5 rounded-xl bg-sky-700/90 hover:bg-sky-600 text-white border border-sky-400/70 px-3 py-2 text-xs font-semibold shadow-lg transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 rounded-xl bg-sky-700/90 hover:bg-sky-600 text-white border border-sky-400/70 px-3 py-2 text-xs font-semibold shadow-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
                 <Sun className="w-3.5 h-3.5 text-amber-300" />
                 <span>Weather &amp; Defense</span>
@@ -354,7 +380,7 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
                 type="button"
                 onClick={onToggleRackDropdown}
                 aria-expanded={rackDropdownOpen}
-                className="flex items-center gap-1.5 rounded-xl bg-slate-950/90 hover:bg-slate-900 text-slate-100 border border-slate-700/80 px-3 py-2 text-xs font-semibold shadow-lg transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 rounded-xl bg-slate-950/90 hover:bg-slate-900 text-slate-100 border border-slate-700/80 px-3 py-2 text-xs font-semibold shadow-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
                 <Clock className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Crop Progress</span>

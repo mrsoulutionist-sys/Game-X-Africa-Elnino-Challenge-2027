@@ -12,6 +12,7 @@ import { FarmerLoginOverlay } from './components/FarmerLoginOverlay';
 import { GardenRackPanel } from './components/GardenRackPanel';
 import { LeaderboardModal } from './components/LeaderboardModal';
 import { ParentPortal } from './components/ParentPortal';
+import { RackAssemblyWorkbenchModal } from './components/RackAssemblyWorkbenchModal';
 import { WickExplainerModal } from './components/WickExplainerModal';
 import { WorkshopHud } from './components/WorkshopHud';
 import {
@@ -67,6 +68,11 @@ import {
   KitchenWorkshopScene,
   type WorkshopHudState,
 } from './workshop/KitchenWorkshopScene';
+import {
+  getRackMaterialById,
+  resizeBuiltRacks,
+  type BuiltRackRecord,
+} from './workshop/rackMaterials';
 import { BUILD_STEPS, type BuildStepId, type GradeTier } from './workshop/steps';
 import { workshopVoiceover, type VoiceoverState } from './workshop/voiceover';
 
@@ -132,6 +138,8 @@ export function App() {
 
   const [wickModalOpen, setWickModalOpen] = useState(false);
   const [rackPanelOpen, setRackPanelOpen] = useState(false);
+  const [rackWorkbenchOpen, setRackWorkbenchOpen] = useState(false);
+  const [workbenchTargetRackIndex, setWorkbenchTargetRackIndex] = useState(0);
   const [elNinoHubOpen, setElNinoHubOpen] = useState(false);
   const [rackDropdownOpen, setRackDropdownOpen] = useState(false);
   const [compostModalOpen, setCompostModalOpen] = useState(false);
@@ -454,7 +462,8 @@ export function App() {
           profile.tiers,
           announceStep,
           toResilienceState(profile),
-          profile.door3
+          profile.door3,
+          profile.builtRacks
         );
         if (isReturning && profile.activeZone === 'kitchen') {
           workshopVoiceover.speakCustom(
@@ -508,6 +517,7 @@ export function App() {
   const handleLogout = useCallback(() => {
     workshopVoiceover.stop();
     setRackPanelOpen(false);
+    setRackWorkbenchOpen(false);
     setElNinoHubOpen(false);
     setCompostModalOpen(false);
     setWickModalOpen(false);
@@ -592,13 +602,69 @@ export function App() {
     (nextSize: number) => {
       persistProfileUpdate((prev) => {
         const nextTiers = resizeTierArray(prev.tiers, nextSize);
-        sceneRef.current?.syncGardenTiers(nextSize, nextTiers, toResilienceState(prev));
+        const nextBuiltRacks = resizeBuiltRacks(prev.builtRacks, nextSize);
+        sceneRef.current?.syncGardenTiers(
+          nextSize,
+          nextTiers,
+          toResilienceState(prev),
+          nextBuiltRacks
+        );
         return {
           ...prev,
           rackSize: nextSize,
           tiers: nextTiers,
+          builtRacks: nextBuiltRacks,
         };
       });
+    },
+    [persistProfileUpdate]
+  );
+
+  const handleOpenRackWorkbench = useCallback((rackIndex?: number) => {
+    const snap = profileRef.current;
+    let targetIdx = typeof rackIndex === 'number' ? rackIndex : 0;
+    if (typeof rackIndex !== 'number' && snap) {
+      const builtSet = new Set(snap.builtRacks.map((r) => r.rackIndex));
+      const firstUnbuilt = Array.from({ length: snap.rackSize }, (_, i) => i).find(
+        (i) => !builtSet.has(i)
+      );
+      targetIdx = firstUnbuilt ?? 0;
+    }
+    setWorkbenchTargetRackIndex(targetIdx);
+    setRackPanelOpen(false);
+    setElNinoHubOpen(false);
+    setRackWorkbenchOpen(true);
+  }, []);
+
+  const handleCompleteRackAssembly = useCallback(
+    (record: BuiltRackRecord) => {
+      const matDef = getRackMaterialById(record.materialId);
+      persistProfileUpdate((prev) => {
+        const prevExisting = prev.builtRacks.find((b) => b.rackIndex === record.rackIndex);
+        const filtered = prev.builtRacks.filter((b) => b.rackIndex !== record.rackIndex);
+        const nextBuiltRacks = [...filtered, record].sort((a, b) => a.rackIndex - b.rackIndex);
+        const earnedBonus =
+          record.isRecyclable && !prevExisting?.isRecyclable ? matDef.ecoPoints : 0;
+        const nextEcoPoints = Math.min(100000, prev.ecoBuilderPoints + earnedBonus);
+        sceneRef.current?.syncGardenTiers(
+          prev.rackSize,
+          prev.tiers,
+          toResilienceState(prev),
+          nextBuiltRacks
+        );
+        return {
+          ...prev,
+          builtRacks: nextBuiltRacks,
+          ecoBuilderPoints: nextEcoPoints,
+        };
+      });
+      workshopVoiceover.speakCustom(
+        `Rack ${record.rackIndex + 1} built with ${matDef.name} by ${record.builderName}! ${
+          record.isRecyclable
+            ? 'Eco-Builder bonus points awarded for choosing a recyclable frame.'
+            : 'Ready for your self-watering PVC pipe and seeds!'
+        }`
+      );
     },
     [persistProfileUpdate]
   );
@@ -606,8 +672,10 @@ export function App() {
   const handleDeployPipe = useCallback(
     (tierIndex: number) => {
       if (!profileRef.current || profileRef.current.kitchenStep !== 'COMPLETE') return;
+      if (!profileRef.current.builtRacks.some((b) => b.rackIndex === tierIndex)) return;
       workshopAudio.playPickup();
       persistProfileUpdate((prev) => {
+        if (!prev.builtRacks.some((b) => b.rackIndex === tierIndex)) return prev;
         const nextTiers: TierSaveState[] = prev.tiers.map((t, idx) =>
           idx === tierIndex
             ? {
@@ -623,12 +691,17 @@ export function App() {
           tiers: nextTiers,
           litresSaved: prev.litresSaved + 9,
         };
-        sceneRef.current?.syncGardenTiers(prev.rackSize, nextTiers, toResilienceState(nextProfile));
+        sceneRef.current?.syncGardenTiers(
+          prev.rackSize,
+          nextTiers,
+          toResilienceState(nextProfile),
+          prev.builtRacks
+        );
         return nextProfile;
       });
       sceneRef.current?.clearCompletedPipeSilently();
       workshopVoiceover.speakCustom(
-        `Tier ${tierIndex + 1} PVC manifold mounted! Pick an El Niño-resilient seed, install your JoJo tank, or add shade cloth before a heatwave hits.`
+        `Rack ${tierIndex + 1} PVC manifold mounted! Pick an El Niño-resilient seed, install your JoJo tank, or add shade cloth before a heatwave hits.`
       );
     },
     [persistProfileUpdate]
@@ -658,7 +731,12 @@ export function App() {
               }
             : t
         );
-        sceneRef.current?.syncGardenTiers(prev.rackSize, nextTiers, toResilienceState(prev));
+        sceneRef.current?.syncGardenTiers(
+          prev.rackSize,
+          nextTiers,
+          toResilienceState(prev),
+          prev.builtRacks
+        );
         return { ...prev, tiers: nextTiers };
       });
       if (prevSnapshot && prevSnapshot.compostYieldsSinceRefresh < limit) {
@@ -694,7 +772,12 @@ export function App() {
           litresSaved: prev.litresSaved + 9,
           tiers: nextTiers,
         };
-        sceneRef.current?.syncGardenTiers(prev.rackSize, nextTiers, toResilienceState(nextProfile));
+        sceneRef.current?.syncGardenTiers(
+          prev.rackSize,
+          nextTiers,
+          toResilienceState(nextProfile),
+          prev.builtRacks
+        );
         return nextProfile;
       });
       setNowMs(now);
@@ -726,7 +809,12 @@ export function App() {
               }
             : t
         );
-        sceneRef.current?.syncGardenTiers(prev.rackSize, nextTiers, toResilienceState(prev));
+        sceneRef.current?.syncGardenTiers(
+          prev.rackSize,
+          nextTiers,
+          toResilienceState(prev),
+          prev.builtRacks
+        );
         const nextBest =
           elapsed !== null
             ? prev.bestCompetitionMs == null
@@ -794,7 +882,12 @@ export function App() {
         jojoCapacity: 60,
         jojoLitres: 60,
       };
-      sceneRef.current?.syncGardenTiers(prev.rackSize, prev.tiers, toResilienceState(nextProfile));
+      sceneRef.current?.syncGardenTiers(
+        prev.rackSize,
+        prev.tiers,
+        toResilienceState(nextProfile),
+        prev.builtRacks
+      );
       return nextProfile;
     });
     workshopVoiceover.speakCustom(
@@ -815,7 +908,12 @@ export function App() {
         ...prev,
         jojoLitres: Math.min(prev.jojoCapacity, prev.jojoLitres + gain),
       };
-      sceneRef.current?.syncGardenTiers(prev.rackSize, prev.tiers, toResilienceState(nextProfile));
+      sceneRef.current?.syncGardenTiers(
+        prev.rackSize,
+        prev.tiers,
+        toResilienceState(nextProfile),
+        prev.builtRacks
+      );
       return nextProfile;
     });
   }, [persistProfileUpdate]);
@@ -828,7 +926,12 @@ export function App() {
         ...prev,
         shadeClothInstalled: nextInstalled,
       };
-      sceneRef.current?.syncGardenTiers(prev.rackSize, prev.tiers, toResilienceState(nextProfile));
+      sceneRef.current?.syncGardenTiers(
+        prev.rackSize,
+        prev.tiers,
+        toResilienceState(nextProfile),
+        prev.builtRacks
+      );
       if (nextInstalled) {
         workshopVoiceover.speakCustom(
           '40% agricultural shade cloth installed! It cuts El Niño evaporation by 35% and shields leafy greens from midday scorch.'
@@ -846,7 +949,12 @@ export function App() {
         ...prev,
         windbreakInstalled: nextInstalled,
       };
-      sceneRef.current?.syncGardenTiers(prev.rackSize, prev.tiers, toResilienceState(nextProfile));
+      sceneRef.current?.syncGardenTiers(
+        prev.rackSize,
+        prev.tiers,
+        toResilienceState(nextProfile),
+        prev.builtRacks
+      );
       if (nextInstalled) {
         workshopVoiceover.speakCustom(
           'Woven windbreak netting deployed around the rack! It cuts berg wind shear and stops dry gusts from stripping leaf moisture.'
@@ -864,7 +972,12 @@ export function App() {
         ...prev,
         stormBraceInstalled: nextInstalled,
       };
-      sceneRef.current?.syncGardenTiers(prev.rackSize, prev.tiers, toResilienceState(nextProfile));
+      sceneRef.current?.syncGardenTiers(
+        prev.rackSize,
+        prev.tiers,
+        toResilienceState(nextProfile),
+        prev.builtRacks
+      );
       if (nextInstalled) {
         workshopVoiceover.speakCustom(
           'Storm anchor straps latched and JoJo gutter diverter connected! Your rack stays rigid in squalls and channels stormwater straight into your tank.'
@@ -889,7 +1002,8 @@ export function App() {
         sceneRef.current?.syncGardenTiers(
           prev.rackSize,
           prev.tiers,
-          toResilienceState(nextProfile)
+          toResilienceState(nextProfile),
+          prev.builtRacks
         );
 
         if (nextMode === 'rain_storm') {
@@ -1093,6 +1207,9 @@ export function App() {
             windbreakInstalled={farmerProfile.windbreakInstalled}
             stormBraceInstalled={farmerProfile.stormBraceInstalled}
             tiers={farmerProfile.tiers}
+            rackSize={farmerProfile.rackSize}
+            builtRacksCount={farmerProfile.builtRacks.filter((b) => b.rackIndex < farmerProfile.rackSize).length}
+            ecoBuilderPoints={farmerProfile.ecoBuilderPoints}
             door3={farmerProfile.door3}
             compostYieldsSinceRefresh={farmerProfile.compostYieldsSinceRefresh}
             compostYieldCycleLimit={systemConfig.compostYieldCycleLimit}
@@ -1119,8 +1236,10 @@ export function App() {
             onOpenRackManager={() => {
               setNowMs(Date.now());
               setElNinoHubOpen(false);
+              setRackWorkbenchOpen(false);
               setRackPanelOpen(true);
             }}
+            onOpenRackWorkbench={() => handleOpenRackWorkbench()}
             onOpenElNinoHub={() => {
               setRackPanelOpen(false);
               setElNinoHubOpen(true);
@@ -1257,6 +1376,8 @@ export function App() {
           open={rackPanelOpen}
           rackSize={farmerProfile.rackSize}
           tiers={farmerProfile.tiers}
+          builtRacks={farmerProfile.builtRacks}
+          ecoBuilderPoints={farmerProfile.ecoBuilderPoints}
           hasReadyPipe={hasReadyPipe}
           totalHarvestedCount={farmerProfile.totalHarvestedCount}
           jojoLitres={farmerProfile.jojoLitres}
@@ -1272,6 +1393,7 @@ export function App() {
           nowMs={nowMs}
           onClose={() => setRackPanelOpen(false)}
           onChangeRackSize={handleChangeRackSize}
+          onOpenRackWorkbench={handleOpenRackWorkbench}
           onDeployPipe={handleDeployPipe}
           onPlantSeed={handlePlantSeed}
           onWaterTier={handleWaterTier}
@@ -1282,6 +1404,26 @@ export function App() {
             setElNinoHubOpen(true);
           }}
           onSwitchToCompost={() => handleGuideToDoor('compost')}
+        />
+      )}
+
+      {/* 5-Step Interactive Garden Rack Assembly Workbench */}
+      {farmerProfile && (
+        <RackAssemblyWorkbenchModal
+          open={rackWorkbenchOpen}
+          targetRackIndex={workbenchTargetRackIndex}
+          rackSize={farmerProfile.rackSize}
+          builtRacks={farmerProfile.builtRacks}
+          farmerName={farmerProfile.farmerName}
+          ecoBuilderPoints={farmerProfile.ecoBuilderPoints}
+          onSelectTargetRack={(idx) => setWorkbenchTargetRackIndex(idx)}
+          onCompleteRackAssembly={handleCompleteRackAssembly}
+          onClose={() => setRackWorkbenchOpen(false)}
+          onProceedToPlanting={() => {
+            setRackWorkbenchOpen(false);
+            setNowMs(Date.now());
+            setRackPanelOpen(true);
+          }}
         />
       )}
 

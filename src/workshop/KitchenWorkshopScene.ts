@@ -22,6 +22,7 @@ import {
   type GardenResilienceState,
   type GardenYardHandle,
 } from './gardenYardBuilder';
+import type { BuiltRackRecord } from './rackMaterials';
 import { buildHydroponicRig, type HydroponicRigHandle } from './hydroponicRigBuilder';
 import { buildKitchenWorkshopRoom, type AABB, type KitchenRoomHandle } from './kitchenRoomBuilder';
 import { createWorkshopMaterials, type WorkshopMaterials } from './materials';
@@ -354,7 +355,8 @@ export class KitchenWorkshopScene {
     tiers: TierSaveState[],
     announce: boolean,
     resilience?: GardenResilienceState,
-    door3Progress?: Door3ProgressState
+    door3Progress?: Door3ProgressState,
+    builtRacks?: BuiltRackRecord[]
   ): void {
     this.stepId = kitchenStep;
     if (resilience) {
@@ -378,7 +380,7 @@ export class KitchenWorkshopScene {
 
     this.room.setActiveStepVisuals(this.stepId, false);
     this.rig.setStepState(this.stepId, this.cutawayMode);
-    this.garden.setGardenState(rackSize, tiers, this.cutawayMode, this.resilience);
+    this.garden.setGardenState(rackSize, tiers, this.cutawayMode, this.resilience, builtRacks);
     this.compost.setProgress(this.door3Progress);
     this.compost.setWeatherState(
       this.resilience.weatherMode,
@@ -411,7 +413,8 @@ export class KitchenWorkshopScene {
   public syncGardenTiers(
     rackSize: number,
     tiers: TierSaveState[],
-    resilience?: GardenResilienceState
+    resilience?: GardenResilienceState,
+    builtRacks?: BuiltRackRecord[]
   ): void {
     if (resilience) {
       this.resilience = resilience;
@@ -425,7 +428,7 @@ export class KitchenWorkshopScene {
         this.applyGardenAtmosphere();
       }
     }
-    this.garden.setGardenState(rackSize, tiers, this.cutawayMode, this.resilience);
+    this.garden.setGardenState(rackSize, tiers, this.cutawayMode, this.resilience, builtRacks);
   }
 
   public syncCompostProgress(progress: Door3ProgressState): void {

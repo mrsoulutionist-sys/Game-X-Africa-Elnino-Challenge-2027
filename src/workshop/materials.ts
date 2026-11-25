@@ -35,6 +35,14 @@ export interface WorkshopMaterials {
   drillBodyMat: THREE.MeshStandardMaterial;
   windowGlowMat: THREE.MeshBasicMaterial;
   pendantGlowMat: THREE.MeshStandardMaterial;
+  rackReclaimedPvcMat: THREE.MeshStandardMaterial;
+  rackPalletWoodMat: THREE.MeshStandardMaterial;
+  rackScrapMetalMat: THREE.MeshStandardMaterial;
+  rackUpcycledHdpeMat: THREE.MeshStandardMaterial;
+  rackStandardPvcMat: THREE.MeshStandardMaterial;
+  rackStandardTimberMat: THREE.MeshStandardMaterial;
+  rackLinerMat: THREE.MeshStandardMaterial;
+  rackUnbuiltGhostMat: THREE.MeshBasicMaterial;
   dispose: () => void;
 }
 
@@ -223,6 +231,100 @@ function createBrushedSteelTexture(): THREE.CanvasTexture {
   return tex;
 }
 
+function createPalletWoodTexture(): THREE.CanvasTexture {
+  const [canvas, ctx] = makeCanvas(256, 256);
+  const plankColors = ['#a87442', '#946134', '#b5804c', '#88562b'];
+  const h = 256 / 4;
+  for (let i = 0; i < 4; i++) {
+    ctx.fillStyle = plankColors[i];
+    ctx.fillRect(0, i * h, 256, h - 2);
+    ctx.strokeStyle = 'rgba(54, 30, 12, 0.26)';
+    ctx.lineWidth = 1.4;
+    for (let g = 0; g < 5; g++) {
+      const gy = i * h + 8 + g * 11;
+      ctx.beginPath();
+      ctx.moveTo(0, gy);
+      for (let x = 0; x <= 256; x += 24) {
+        ctx.lineTo(x, gy + Math.sin(x * 0.04 + i + g) * 2.2);
+      }
+      ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(40, 22, 10, 0.55)';
+    ctx.fillRect(0, (i + 1) * h - 2, 256, 2);
+    ctx.fillStyle = '#475569';
+    ctx.beginPath();
+    ctx.arc(22, i * h + h * 0.5, 3.2, 0, Math.PI * 2);
+    ctx.arc(234, i * h + h * 0.5, 3.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(2, 1);
+  return tex;
+}
+
+function createUpcycledHdpeTexture(): THREE.CanvasTexture {
+  const [canvas, ctx] = makeCanvas(256, 256);
+  ctx.fillStyle = '#0f766e';
+  ctx.fillRect(0, 0, 256, 256);
+  const flecks = ['#5eead4', '#134e4a', '#99f6e4', '#0d9488', '#f8fafc', '#f59e0b'];
+  for (let i = 0; i < 650; i++) {
+    const x = ((Math.sin(i * 19.17) * 43758.54) % 1 + 1) % 1 * 256;
+    const y = ((Math.sin(i * 73.91) * 19341.23) % 1 + 1) % 1 * 256;
+    ctx.fillStyle = flecks[i % flecks.length];
+    ctx.fillRect(x, y, 2 + (i % 4), 1.5 + (i % 3));
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+function createReclaimedPvcTexture(): THREE.CanvasTexture {
+  const [canvas, ctx] = makeCanvas(256, 256);
+  ctx.fillStyle = '#cfd8e3';
+  ctx.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 6; i++) {
+    ctx.fillStyle = i % 2 === 0 ? 'rgba(148, 163, 184, 0.25)' : 'rgba(248, 250, 252, 0.35)';
+    ctx.fillRect(0, i * 42, 256, 18);
+  }
+  ctx.fillStyle = 'rgba(52, 211, 153, 0.28)';
+  ctx.fillRect(0, 122, 256, 6);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+function createScrapMetalTexture(): THREE.CanvasTexture {
+  const [canvas, ctx] = makeCanvas(256, 256);
+  ctx.fillStyle = '#64748b';
+  ctx.fillRect(0, 0, 256, 256);
+  for (let y = 0; y < 256; y += 3) {
+    const shade = 86 + ((y * 17) % 28);
+    ctx.fillStyle = `rgb(${shade}, ${shade + 8}, ${shade + 16})`;
+    ctx.fillRect(0, y, 256, 2);
+  }
+  // Subtle patina weld spots
+  ctx.fillStyle = 'rgba(180, 118, 68, 0.22)';
+  for (let i = 0; i < 18; i++) {
+    const x = ((i * 53) % 220) + 16;
+    const y = ((i * 89) % 220) + 16;
+    ctx.beginPath();
+    ctx.arc(x, y, 6 + (i % 5), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
 export function createWorkshopMaterials(renderer: THREE.WebGLRenderer): WorkshopMaterials {
   const maxAniso = Math.min(8, renderer.capabilities.getMaxAnisotropy() || 1);
 
@@ -231,8 +333,22 @@ export function createWorkshopMaterials(renderer: THREE.WebGLRenderer): Workshop
   const butcherTex = createButcherBlockTexture();
   const floorTex = createOakFloorTexture();
   const steelTex = createBrushedSteelTexture();
+  const palletWoodTex = createPalletWoodTexture();
+  const hdpeTex = createUpcycledHdpeTexture();
+  const reclaimedPvcTex = createReclaimedPvcTexture();
+  const scrapMetalTex = createScrapMetalTexture();
 
-  [tileTex, quartzTex, butcherTex, floorTex, steelTex].forEach((t) => {
+  [
+    tileTex,
+    quartzTex,
+    butcherTex,
+    floorTex,
+    steelTex,
+    palletWoodTex,
+    hdpeTex,
+    reclaimedPvcTex,
+    scrapMetalTex,
+  ].forEach((t) => {
     t.anisotropy = maxAniso;
   });
 
@@ -457,7 +573,67 @@ export function createWorkshopMaterials(renderer: THREE.WebGLRenderer): Workshop
     roughness: 0.2,
   });
 
-  const allTextures = [tileTex, quartzTex, butcherTex, floorTex, steelTex];
+  const rackReclaimedPvcMat = new THREE.MeshStandardMaterial({
+    map: reclaimedPvcTex,
+    roughness: 0.44,
+    metalness: 0.04,
+  });
+
+  const rackPalletWoodMat = new THREE.MeshStandardMaterial({
+    map: palletWoodTex,
+    roughness: 0.78,
+    metalness: 0.02,
+  });
+
+  const rackScrapMetalMat = new THREE.MeshStandardMaterial({
+    map: scrapMetalTex,
+    roughness: 0.42,
+    metalness: 0.72,
+  });
+
+  const rackUpcycledHdpeMat = new THREE.MeshStandardMaterial({
+    map: hdpeTex,
+    roughness: 0.48,
+    metalness: 0.05,
+  });
+
+  const rackStandardPvcMat = new THREE.MeshStandardMaterial({
+    color: 0xf4f7fb,
+    roughness: 0.26,
+    metalness: 0.03,
+  });
+
+  const rackStandardTimberMat = new THREE.MeshStandardMaterial({
+    map: butcherTex,
+    color: 0xf1d09c,
+    roughness: 0.56,
+    metalness: 0.02,
+  });
+
+  const rackLinerMat = new THREE.MeshStandardMaterial({
+    color: 0x1e293b,
+    roughness: 0.72,
+    metalness: 0.08,
+  });
+
+  const rackUnbuiltGhostMat = new THREE.MeshBasicMaterial({
+    color: 0x34d399,
+    transparent: true,
+    opacity: 0.28,
+    wireframe: true,
+  });
+
+  const allTextures = [
+    tileTex,
+    quartzTex,
+    butcherTex,
+    floorTex,
+    steelTex,
+    palletWoodTex,
+    hdpeTex,
+    reclaimedPvcTex,
+    scrapMetalTex,
+  ];
   const allMaterials: THREE.Material[] = [
     floorMat,
     wallMat,
@@ -493,6 +669,14 @@ export function createWorkshopMaterials(renderer: THREE.WebGLRenderer): Workshop
     drillBodyMat,
     windowGlowMat,
     pendantGlowMat,
+    rackReclaimedPvcMat,
+    rackPalletWoodMat,
+    rackScrapMetalMat,
+    rackUpcycledHdpeMat,
+    rackStandardPvcMat,
+    rackStandardTimberMat,
+    rackLinerMat,
+    rackUnbuiltGhostMat,
   ];
 
   return {
@@ -530,6 +714,14 @@ export function createWorkshopMaterials(renderer: THREE.WebGLRenderer): Workshop
     drillBodyMat,
     windowGlowMat,
     pendantGlowMat,
+    rackReclaimedPvcMat,
+    rackPalletWoodMat,
+    rackScrapMetalMat,
+    rackUpcycledHdpeMat,
+    rackStandardPvcMat,
+    rackStandardTimberMat,
+    rackLinerMat,
+    rackUnbuiltGhostMat,
     dispose: () => {
       allTextures.forEach((t) => t.dispose());
       allMaterials.forEach((m) => m.dispose());
