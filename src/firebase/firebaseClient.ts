@@ -28,9 +28,15 @@ import {
   sanitizeBuiltRacks,
   type BuiltRackRecord,
 } from '../workshop/rackMaterials';
+import {
+  DEFAULT_SOLAR_PROGRESS,
+  type SolarProgressState,
+  type SolarStepNumber,
+  type SolarWiringMode,
+} from '../workshop/solarData';
 import { syncLeaderboardStudent } from './leaderboardService';
 
-export type ActiveZone = 'kitchen' | 'garden' | 'compost';
+export type ActiveZone = 'kitchen' | 'garden' | 'compost' | 'solar';
 
 export const SCHOOL_GRADES = [
   'Grade 4',
@@ -102,6 +108,7 @@ export interface FarmerProfile {
   bestCompetitionMs?: number | null;
   builtRacks: BuiltRackRecord[];
   ecoBuilderPoints: number;
+  solar: SolarProgressState;
   role?: 'student';
   schoolName?: string;
   schoolKey?: string;
@@ -305,6 +312,52 @@ function serializeDoor3(door3: Door3ProgressState) {
   };
 }
 
+function sanitizeSolar(data: Record<string, unknown>): SolarProgressState {
+  const wiringMode: SolarWiringMode = data.solarWiringMode === 'parallel' ? 'parallel' : 'series';
+  return {
+    step: clampInt(data.solarStep, 1, 5, 1) as SolarStepNumber,
+    framePartsDone: clampInt(data.solarFrameParts, 0, 4, 0),
+    panelPartsDone: clampInt(data.solarPanelParts, 0, 3, 0),
+    wiringMode,
+    wiredStage: clampInt(data.solarWiredStage, 0, 4, 0),
+    tiltDeg: clampInt(data.solarTiltDeg, 0, 75, DEFAULT_SOLAR_PROGRESS.tiltDeg),
+    azimuthDeg: clampInt(data.solarAzimuthDeg, -90, 90, DEFAULT_SOLAR_PROGRESS.azimuthDeg),
+    dustLevel: clampInt(data.solarDustLevel, 0, 100, 0),
+    yieldsSinceClean: clampInt(data.yieldsSinceSolarClean, 0, 50, 0),
+    cleanCount: clampInt(data.solarCleanCount, 0, 10000, 0),
+  };
+}
+
+function hasNonDefaultSolar(solar: SolarProgressState): boolean {
+  return (
+    solar.step !== DEFAULT_SOLAR_PROGRESS.step ||
+    solar.framePartsDone !== DEFAULT_SOLAR_PROGRESS.framePartsDone ||
+    solar.panelPartsDone !== DEFAULT_SOLAR_PROGRESS.panelPartsDone ||
+    solar.wiringMode !== DEFAULT_SOLAR_PROGRESS.wiringMode ||
+    solar.wiredStage !== DEFAULT_SOLAR_PROGRESS.wiredStage ||
+    solar.tiltDeg !== DEFAULT_SOLAR_PROGRESS.tiltDeg ||
+    solar.azimuthDeg !== DEFAULT_SOLAR_PROGRESS.azimuthDeg ||
+    solar.dustLevel !== DEFAULT_SOLAR_PROGRESS.dustLevel ||
+    solar.yieldsSinceClean !== DEFAULT_SOLAR_PROGRESS.yieldsSinceClean ||
+    solar.cleanCount !== DEFAULT_SOLAR_PROGRESS.cleanCount
+  );
+}
+
+function serializeSolar(solar: SolarProgressState) {
+  return {
+    solarStep: clampInt(solar.step, 1, 5, 1),
+    solarFrameParts: clampInt(solar.framePartsDone, 0, 4, 0),
+    solarPanelParts: clampInt(solar.panelPartsDone, 0, 3, 0),
+    solarWiringMode: solar.wiringMode === 'parallel' ? 'parallel' : 'series',
+    solarWiredStage: clampInt(solar.wiredStage, 0, 4, 0),
+    solarTiltDeg: clampInt(solar.tiltDeg, 0, 75, DEFAULT_SOLAR_PROGRESS.tiltDeg),
+    solarAzimuthDeg: clampInt(solar.azimuthDeg, -90, 90, DEFAULT_SOLAR_PROGRESS.azimuthDeg),
+    solarDustLevel: clampInt(solar.dustLevel, 0, 100, 0),
+    yieldsSinceSolarClean: clampInt(solar.yieldsSinceClean, 0, 50, 0),
+    solarCleanCount: clampInt(solar.cleanCount, 0, 10000, 0),
+  };
+}
+
 function sanitizeTiers(rawTiers: unknown, rackSize: number): TierSaveState[] {
   const clampedSize = Math.max(1, Math.min(6, Math.round(rackSize || 2)));
   const arr = Array.isArray(rawTiers) ? rawTiers : [];
@@ -315,10 +368,18 @@ function sanitizeTiers(rawTiers: unknown, rackSize: number): TierSaveState[] {
       tierIndex: i,
       pipeInstalled: Boolean(src?.pipeInstalled),
       cropId: typeof src?.cropId === 'string' ? (src.cropId as CropId) : null,
-      plantedAtMs: typeof src?.plantedAtMs === 'number' ? src.plantedAtMs : null,
-      wateredAtMs: typeof src?.wateredAtMs === 'number' ? src.wateredAtMs : null,
+      plantedAtMs:
+        typeof src?.plantedAtMs === 'number' && Number.isFinite(src.plantedAtMs)
+          ? Math.round(src.plantedAtMs)
+          : null,
+      wateredAtMs:
+        typeof src?.wateredAtMs === 'number' && Number.isFinite(src.wateredAtMs)
+          ? Math.round(src.wateredAtMs)
+          : null,
       waterDurationHours:
-        typeof src?.waterDurationHours === 'number' && src.waterDurationHours > 0
+        typeof src?.waterDurationHours === 'number' &&
+        Number.isFinite(src.waterDurationHours) &&
+        src.waterDurationHours > 0
           ? src.waterDurationHours
           : 84,
       harvested: Boolean(src?.harvested),
@@ -471,7 +532,9 @@ export async function loginOrCreateFarmer(
         ? 'garden'
         : data.activeZone === 'compost'
           ? 'compost'
-          : 'kitchen';
+          : data.activeZone === 'solar'
+            ? 'solar'
+            : 'kitchen';
     const rawWeather = String(data.weatherMode || 'normal') as WeatherMode;
     const weatherMode: WeatherMode = VALID_WEATHER_MODES.has(rawWeather) ? rawWeather : 'normal';
     const jojoCapacity =
@@ -484,20 +547,28 @@ export async function loginOrCreateFarmer(
         : 18;
 
     if (cleanSchoolName && cleanGrade) {
-      const studentMetaMerge: Record<string, unknown> = {
-        role: 'student',
-        schoolName: cleanSchoolName,
-        schoolKey,
-        grade: cleanGrade,
-        updatedAt: serverTimestamp(),
-      };
-      if (cleanTeacherName) {
-        studentMetaMerge.teacherName = cleanTeacherName;
-      }
-      try {
-        await setDoc(ref, studentMetaMerge, { merge: true });
-      } catch (err) {
-        handleFirestoreError(err, OperationType.UPDATE, path);
+      const metadataChanged =
+        data.role !== 'student' ||
+        data.schoolName !== cleanSchoolName ||
+        data.schoolKey !== schoolKey ||
+        data.grade !== cleanGrade ||
+        (Boolean(cleanTeacherName) && data.teacherName !== cleanTeacherName);
+      if (metadataChanged) {
+        const studentMetaMerge: Record<string, unknown> = {
+          role: 'student',
+          schoolName: cleanSchoolName,
+          schoolKey,
+          grade: cleanGrade,
+          updatedAt: serverTimestamp(),
+        };
+        if (cleanTeacherName) {
+          studentMetaMerge.teacherName = cleanTeacherName;
+        }
+        try {
+          await setDoc(ref, studentMetaMerge, { merge: true });
+        } catch (err) {
+          handleFirestoreError(err, OperationType.UPDATE, path);
+        }
       }
     }
 
@@ -554,6 +625,7 @@ export async function loginOrCreateFarmer(
           : null,
       builtRacks: sanitizedBuiltRacks,
       ecoBuilderPoints: resolvedEcoPoints,
+      solar: sanitizeSolar(data),
       role: 'student',
       ...(resolvedSchoolName ? { schoolName: resolvedSchoolName } : {}),
       ...(resolvedSchoolKey ? { schoolKey: resolvedSchoolKey } : {}),
@@ -601,6 +673,7 @@ export async function loginOrCreateFarmer(
     bestCompetitionMs: null,
     builtRacks: [],
     ecoBuilderPoints: 0,
+    solar: { ...DEFAULT_SOLAR_PROGRESS },
     role: 'student',
     ...(cleanSchoolName ? { schoolName: cleanSchoolName, schoolKey } : {}),
     ...(cleanGrade ? { grade: cleanGrade } : {}),
@@ -608,12 +681,13 @@ export async function loginOrCreateFarmer(
   };
 
   try {
-    const { door3, ...baseFields } = freshProfile;
+    const { door3, solar, ...baseFields } = freshProfile;
     await setDoc(
       ref,
       {
         ...baseFields,
         ...serializeDoor3(door3),
+        ...(hasNonDefaultSolar(solar) ? serializeSolar(solar) : {}),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       },
@@ -767,7 +841,7 @@ export async function saveFarmerProgress(profile: FarmerProfile): Promise<void> 
   const path = `farmers/${profile.farmerKey}`;
   const ref = doc(db, 'farmers', profile.farmerKey);
 
-  const rackSize = Math.max(1, Math.min(6, Math.round(profile.rackSize)));
+  const rackSize = clampInt(profile.rackSize, 1, 6, 2);
   const cleanTiers = sanitizeTiers(profile.tiers, rackSize);
   const cleanBuiltRacks = sanitizeBuiltRacks(
     profile.builtRacks,
@@ -779,32 +853,57 @@ export async function saveFarmerProgress(profile: FarmerProfile): Promise<void> 
     cleanBuiltRacks,
     profile.ecoBuilderPoints
   );
-  const jojoCapacity = Math.max(20, Math.min(500, profile.jojoCapacity || 60));
+  const jojoCapacity =
+    typeof profile.jojoCapacity === 'number' && Number.isFinite(profile.jojoCapacity)
+      ? Math.max(20, Math.min(500, Math.round(profile.jojoCapacity * 10) / 10))
+      : 60;
+  const jojoLitres =
+    typeof profile.jojoLitres === 'number' && Number.isFinite(profile.jojoLitres)
+      ? Math.max(0, Math.min(jojoCapacity, Math.round(profile.jojoLitres * 10) / 10))
+      : 0;
+  const litresSaved =
+    typeof profile.litresSaved === 'number' && Number.isFinite(profile.litresSaved)
+      ? Math.max(0, Math.min(1000000, Math.round(profile.litresSaved * 10) / 10))
+      : 0;
+  const activeZone: ActiveZone =
+    profile.activeZone === 'garden' ||
+    profile.activeZone === 'compost' ||
+    profile.activeZone === 'solar'
+      ? profile.activeZone
+      : 'kitchen';
+  const kitchenStep: BuildStepId = VALID_KITCHEN_STEPS.has(profile.kitchenStep)
+    ? profile.kitchenStep
+    : 'GET_SAW';
 
   try {
     await updateDoc(ref, {
       farmerName: profile.farmerName.trim().slice(0, 40) || 'Farmer',
-      activeZone: profile.activeZone,
-      kitchenStep: profile.kitchenStep,
+      activeZone,
+      kitchenStep,
       rackSize,
       tiers: cleanTiers,
       builtRacks: cleanBuiltRacks,
       ecoBuilderPoints: cleanEcoBuilderPoints,
-      totalHarvestedCount: Math.max(0, Math.round(profile.totalHarvestedCount)),
+      totalHarvestedCount: clampInt(profile.totalHarvestedCount, 0, 100000, 0),
       jojoInstalled: Boolean(profile.jojoInstalled),
-      jojoLitres: Math.max(0, Math.min(jojoCapacity, Math.round(profile.jojoLitres * 10) / 10)),
+      jojoLitres,
       jojoCapacity,
       shadeClothInstalled: Boolean(profile.shadeClothInstalled),
       windbreakInstalled: Boolean(profile.windbreakInstalled),
       stormBraceInstalled: Boolean(profile.stormBraceInstalled),
       weatherMode: VALID_WEATHER_MODES.has(profile.weatherMode) ? profile.weatherMode : 'normal',
-      litresSaved: Math.max(0, Math.min(1000000, Math.round(profile.litresSaved * 10) / 10)),
-      foodServings: Math.max(0, Math.min(1000000, Math.round(profile.foodServings))),
-      ...serializeDoor3(profile.door3),
+      litresSaved,
+      foodServings: clampInt(profile.foodServings, 0, 1000000, 0),
+      ...serializeDoor3(profile.door3 ?? DEFAULT_DOOR3_PROGRESS),
+      ...(activeZone === 'solar' || hasNonDefaultSolar(profile.solar ?? DEFAULT_SOLAR_PROGRESS)
+        ? serializeSolar(profile.solar ?? DEFAULT_SOLAR_PROGRESS)
+        : {}),
       compostYieldsSinceRefresh: clampInt(profile.compostYieldsSinceRefresh, 0, 50, 0),
       compostCycleCount: clampInt(profile.compostCycleCount, 0, 10000, 0),
       bestCompetitionMs:
-        typeof profile.bestCompetitionMs === 'number' && profile.bestCompetitionMs >= 0
+        typeof profile.bestCompetitionMs === 'number' &&
+        Number.isFinite(profile.bestCompetitionMs) &&
+        profile.bestCompetitionMs >= 0
           ? Math.min(86400000, Math.round(profile.bestCompetitionMs))
           : null,
       updatedAt: serverTimestamp(),

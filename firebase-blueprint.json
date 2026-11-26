@@ -21,7 +21,7 @@
         "activeZone": {
           "type": "string",
           "description": "Current area the farmer is standing in.",
-          "enum": ["kitchen", "garden", "compost"]
+          "enum": ["kitchen", "garden", "compost", "solar"]
         },
         "kitchenStep": {
           "type": "string",
@@ -151,6 +151,47 @@
         "ecoBuilderPoints": {
           "type": "integer",
           "description": "Cumulative Eco-Builder bonus points awarded for assembling garden racks with recyclable materials."
+        },
+        "solarStep": {
+          "type": "integer",
+          "description": "Room 4 Solar & PVC Workshop step progress (1 to 5)."
+        },
+        "solarFrameParts": {
+          "type": "integer",
+          "description": "Number of Step 1 elevated PVC mounting frame parts snapped (0 to 4)."
+        },
+        "solarPanelParts": {
+          "type": "integer",
+          "description": "Number of Step 2 solar panel assembly parts locked (0 to 3)."
+        },
+        "solarWiringMode": {
+          "type": "string",
+          "description": "Selected solar wiring topology (series for voltage or parallel for amperage).",
+          "enum": ["series", "parallel"]
+        },
+        "solarWiredStage": {
+          "type": "integer",
+          "description": "Sequential Step 3 wiring completion stage (0 to 4)."
+        },
+        "solarTiltDeg": {
+          "type": "integer",
+          "description": "Mounted solar panel tilt angle in degrees (0 to 75)."
+        },
+        "solarAzimuthDeg": {
+          "type": "integer",
+          "description": "Mounted solar panel horizontal rotation angle in degrees (-90 to 90)."
+        },
+        "solarDustLevel": {
+          "type": "integer",
+          "description": "Simulated El Nino dust accumulation overlay on solar panels (0 to 100)."
+        },
+        "yieldsSinceSolarClean": {
+          "type": "integer",
+          "description": "Harvest yield counter since the last Room 4 solar panel wash and angle check."
+        },
+        "solarCleanCount": {
+          "type": "integer",
+          "description": "Total completed solar maintenance cycles."
         },
         "createdAt": {
           "type": "string",
@@ -405,6 +446,8 @@
         "configId": { "type": "string", "enum": ["global"] },
         "competitionTimerEnabled": { "type": "boolean" },
         "compostYieldCycleLimit": { "type": "integer" },
+        "solarDustYieldTriggerLimit": { "type": "integer", "description": "Crop yields required before El Nino solar dust maintenance is triggered (1 to 10, default 3)." },
+        "maxHarvestHoursCap": { "type": "integer", "description": "Maximum allowed harvest cycle cap in hours (12 to 24)." },
         "challengeBannerText": { "type": "string", "maxLength": 180 },
         "banners": { "type": "array", "description": "Up to 12 stage-targeted intermittent banners (scroll or flash)." },
         "actionTokenId": { "type": "string", "minLength": 2, "maxLength": 120 },

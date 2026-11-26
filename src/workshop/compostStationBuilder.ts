@@ -14,6 +14,7 @@ import {
   createPropBrandPlaque,
   type DynamicSponsorController,
 } from './sponsorSignage';
+import { createHorizonBackdrop } from './horizonBackdrop';
 import { createWeatherFxSystem } from './weatherFx';
 
 export type CompostAnchorTarget =
@@ -21,7 +22,8 @@ export type CompostAnchorTarget =
   | 'compost_bay'
   | 'mulch_bench'
   | 'garden_door'
-  | 'kitchen_door';
+  | 'kitchen_door'
+  | 'solar_door';
 
 export type CompostTimedAnimKind =
   | 'none'
@@ -59,7 +61,8 @@ export interface CompostStationHandle {
     isHolding: boolean
   ) => Door3ManualStepResult;
   startActionAnim: (kind: CompostTimedAnimKind) => void;
-  setDoorOpenFactors: (gardenOpen: number, kitchenOpen: number) => void;
+  setDoorOpenFactors: (gardenOpen: number, kitchenOpen: number, solarOpen?: number) => void;
+  setSolarDoorWarning: (active: boolean) => void;
   setProgress: (progress: Door3ProgressState) => void;
   setWeatherState: (
     weatherMode: WeatherMode,
@@ -151,6 +154,10 @@ export function buildCompostStation(
   const weatherFx = createWeatherFxSystem();
   group.add(weatherFx.group);
   disposables.push({ dispose: weatherFx.dispose });
+
+  const horizon = createHorizonBackdrop();
+  group.add(horizon.group);
+  disposables.push({ dispose: horizon.dispose });
   let activeWeatherMode: WeatherMode = 'normal';
   let activeWindbreak = false;
   let activeStormBrace = false;
@@ -369,6 +376,81 @@ export function buildCompostStation(
     0x38bdf8,
     mats.pvcAcrylicWindowMat
   );
+
+  // East Fence Walk-Through Portal -> Door 4: Solar & PVC Workshop (x = 4.78, z = 2.25)
+  const solarDoorGroup = new THREE.Group();
+  solarDoorGroup.position.set(4.78, 0, 2.25);
+  solarDoorGroup.rotation.y = -Math.PI * 0.5;
+  group.add(solarDoorGroup);
+
+  const csFrameL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.34, 0.26), mats.cabinetDarkMat);
+  csFrameL.position.set(-0.62, 1.17, 0.04);
+  solarDoorGroup.add(csFrameL);
+  const csFrameR = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.34, 0.26), mats.cabinetDarkMat);
+  csFrameR.position.set(0.62, 1.17, 0.04);
+  solarDoorGroup.add(csFrameR);
+  const csFrameTop = new THREE.Mesh(new THREE.BoxGeometry(1.36, 0.14, 0.26), mats.cabinetDarkMat);
+  csFrameTop.position.set(0, 2.27, 0.04);
+  solarDoorGroup.add(csFrameTop);
+
+  const solarDoorPivot = new THREE.Group();
+  solarDoorPivot.position.set(-0.56, 0, 0);
+  const csDoorPanel = new THREE.Mesh(new THREE.BoxGeometry(1.12, 2.18, 0.08), mats.cabinetMat);
+  csDoorPanel.position.set(0.56, 1.12, 0);
+  solarDoorPivot.add(csDoorPanel);
+  const csDoorGlass = new THREE.Mesh(new THREE.BoxGeometry(0.76, 1.15, 0.09), mats.pvcAcrylicWindowMat);
+  csDoorGlass.position.set(0.56, 1.48, 0);
+  solarDoorPivot.add(csDoorGlass);
+  const csDoorHandle = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.03, 0.08), mats.brassMat);
+  csDoorHandle.position.set(0.98, 1.05, -0.06);
+  solarDoorPivot.add(csDoorHandle);
+  solarDoorGroup.add(solarDoorPivot);
+
+  const csSignTex = createStationSignTexture('DOOR 4 · SOLAR LAB', 'WALK THROUGH →', '#facc15');
+  disposables.push(csSignTex);
+  const csSignMat = new THREE.MeshBasicMaterial({ map: csSignTex });
+  disposables.push(csSignMat);
+  const csSign = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.38), csSignMat);
+  csSign.position.set(0, 2.6, -0.05);
+  csSign.rotation.y = Math.PI;
+  solarDoorGroup.add(csSign);
+
+  const solarWarningRingMat = new THREE.MeshBasicMaterial({
+    color: 0xf59e0b,
+    transparent: true,
+    opacity: 0.9,
+    side: THREE.DoubleSide,
+  });
+  disposables.push(solarWarningRingMat);
+  const solarBeacon = new THREE.Mesh(new THREE.RingGeometry(0.32, 0.44, 28), solarWarningRingMat);
+  solarBeacon.rotation.x = -Math.PI * 0.5;
+  solarBeacon.position.set(0, 0.04, -0.52);
+  solarDoorGroup.add(solarBeacon);
+
+  const solarPadMat = new THREE.MeshBasicMaterial({
+    color: 0xfacc15,
+    transparent: true,
+    opacity: 0.32,
+    side: THREE.DoubleSide,
+  });
+  disposables.push(solarPadMat);
+  const solarPad = new THREE.Mesh(new THREE.PlaneGeometry(1.16, 0.56), solarPadMat);
+  solarPad.rotation.x = -Math.PI * 0.5;
+  solarPad.position.set(0, 0.035, -0.36);
+  solarDoorGroup.add(solarPad);
+
+  const solarAlertFrameMat = new THREE.MeshBasicMaterial({
+    color: 0xf97316,
+    transparent: true,
+    opacity: 0,
+  });
+  disposables.push(solarAlertFrameMat);
+  const solarAlertFrame = new THREE.Mesh(new THREE.BoxGeometry(1.42, 2.38, 0.06), solarAlertFrameMat);
+  solarAlertFrame.position.set(0, 1.19, -0.06);
+  solarAlertFrame.visible = false;
+  solarDoorGroup.add(solarAlertFrame);
+
+  let solarWarningActive = false;
 
   // ============================================================================
   // 2. WORKSTATION 1 — 2L Bottle Drip-Feeder (West: x = -2.25, z = -1.15)
@@ -1524,6 +1606,27 @@ export function buildCompostStation(
       });
     }
 
+    // Gentle breeze sway on Workstation 1 & Workstation 3 plants
+    ws1PlantGroup.rotation.z = Math.sin(time * 1.65) * 0.045;
+    ws3PlantGroup.rotation.z = Math.sin(time * 1.55 + 1.2) * 0.04;
+
+    weatherFx.update(dt, time, activeWeatherMode, activeWindbreak, activeStormBrace);
+    horizon.update(time);
+
+    if (solarWarningActive) {
+      const pulse = 0.5 + Math.sin(time * 7.5) * 0.45;
+      solarWarningRingMat.color.setHex(pulse > 0.5 ? 0xef4444 : 0xf59e0b);
+      solarWarningRingMat.opacity = 0.55 + pulse * 0.45;
+      solarAlertFrame.visible = true;
+      solarAlertFrameMat.opacity = 0.14 + pulse * 0.22;
+      solarBeacon.scale.setScalar(1 + pulse * 0.16);
+    } else {
+      solarWarningRingMat.color.setHex(0xfacc15);
+      solarWarningRingMat.opacity = 0.85;
+      solarAlertFrame.visible = false;
+      solarBeacon.scale.setScalar(1);
+    }
+
     // Timed 3D action sequences
     if (activeAnim === 'none') return;
     animElapsed += dt;
@@ -1539,7 +1642,6 @@ export function buildCompostStation(
       if (t >= 1) activeAnim = 'none';
     } else if (activeAnim === 'ws1_bury') {
       const t = Math.min(1, animElapsed / 1.15);
-      const ease = 1 - Math.pow(1 - t, 2.4);
       // Hand trowel digging beside the plant
       animTrowel.position.set(
         0.2 + Math.sin(animElapsed * 14) * 0.03,
@@ -1668,7 +1770,6 @@ export function buildCompostStation(
         setProgress(currentProgress);
       }
     }
-    weatherFx.update(dt, time, activeWeatherMode, activeWindbreak, activeStormBrace);
   };
 
   const setWeatherState = (
@@ -1690,9 +1791,14 @@ export function buildCompostStation(
     disposables.forEach((d) => d.dispose());
   };
 
-  const setDoorOpenFactors = (gardenOpen: number, kitchenOpen: number) => {
+  const setDoorOpenFactors = (gardenOpen: number, kitchenOpen: number, solarOpen = 0) => {
     gardenDoorPivot.rotation.y = THREE.MathUtils.clamp(gardenOpen, 0, 1) * 1.25;
     kitchenDoorPivot.rotation.y = THREE.MathUtils.clamp(kitchenOpen, 0, 1) * 1.25;
+    solarDoorPivot.rotation.y = THREE.MathUtils.clamp(solarOpen, 0, 1) * 1.25;
+  };
+
+  const setSolarDoorWarning = (active: boolean) => {
+    solarWarningActive = active;
   };
 
   setProgress(currentProgress);
@@ -1706,12 +1812,14 @@ export function buildCompostStation(
       mulch_bench: new THREE.Vector3(2.25, 0, -1.15),
       garden_door: new THREE.Vector3(-1.45, 0, 4.15),
       kitchen_door: new THREE.Vector3(1.45, 0, 4.15),
+      solar_door: new THREE.Vector3(4.35, 0, 2.25),
     },
     interactableObjects,
     getRaycastTargets,
     stepManualTool,
     startActionAnim,
     setDoorOpenFactors,
+    setSolarDoorWarning,
     setProgress,
     setWeatherState,
     update,

@@ -56,31 +56,59 @@ function makeCanvas(width: number, height: number): [HTMLCanvasElement, CanvasRe
 
 function createSubwayTileTexture(): THREE.CanvasTexture {
   const [canvas, ctx] = makeCanvas(512, 512);
-  ctx.fillStyle = '#cfd5db'; // warm light grout
+  ctx.fillStyle = '#e6d7c3'; // warm sand grout
   ctx.fillRect(0, 0, 512, 512);
 
-  const rows = 8;
+  const rows = 4;
   const cols = 4;
   const tileH = 512 / rows;
   const tileW = 512 / cols;
-  const gap = 4;
+  const gap = 5;
+
+  const palettes = [
+    { bg: '#faf1e4', accent: '#c9643b', motif: '#1e6b6b' }, // warm cream + terracotta + Cape teal
+    { bg: '#1e6b6b', accent: '#f4c563', motif: '#faf1e4' }, // rich teal + ochre + ivory
+    { bg: '#c9643b', accent: '#faf1e4', motif: '#f4c563' }, // terracotta + cream + saffron
+    { bg: '#f6ead7', accent: '#287271', motif: '#d97736' }, // sunlit ivory + sage-teal + burnt orange
+  ];
 
   for (let r = 0; r < rows; r++) {
-    const offset = r % 2 === 1 ? tileW * 0.5 : 0;
-    for (let c = -1; c <= cols; c++) {
-      const x = c * tileW + offset + gap * 0.5;
+    for (let c = 0; c < cols; c++) {
+      const x = c * tileW + gap * 0.5;
       const y = r * tileH + gap * 0.5;
       const w = tileW - gap;
       const h = tileH - gap;
+      const p = palettes[(r + c) % palettes.length];
 
-      const shade = 244 + ((r * 7 + c * 13) % 8);
-      ctx.fillStyle = `rgb(${shade}, ${shade + 1}, ${shade + 2})`;
+      ctx.fillStyle = p.bg;
       ctx.fillRect(x, y, w, h);
 
-      // Subtle ceramic bevel highlight
-      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      // Hand-painted ceramic border frame
+      ctx.strokeStyle = p.accent;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x + 8, y + 8, w - 16, h - 16);
+
+      // Center diamond & floral petal ceramic motif
+      const cx = x + w * 0.5;
+      const cy = y + h * 0.5;
+      ctx.fillStyle = p.motif;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 26);
+      ctx.lineTo(cx + 26, cy);
+      ctx.lineTo(cx, cy + 26);
+      ctx.lineTo(cx - 26, cy);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = p.accent;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 10, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Glazed highlight edge
+      ctx.fillStyle = 'rgba(255,255,255,0.42)';
       ctx.fillRect(x, y, w, 3);
-      ctx.fillStyle = 'rgba(180,190,200,0.28)';
+      ctx.fillStyle = 'rgba(120,75,45,0.18)';
       ctx.fillRect(x, y + h - 3, w, 3);
     }
   }
@@ -89,45 +117,56 @@ function createSubwayTileTexture(): THREE.CanvasTexture {
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(3.2, 1.4);
+  tex.repeat.set(3.2, 1.15);
   return tex;
 }
 
 function createQuartzTexture(): THREE.CanvasTexture {
+  // Rich natural honey-teak wood grain texture for perimeter counters & workbenches
   const [canvas, ctx] = makeCanvas(512, 512);
-  ctx.fillStyle = '#f2f3f5';
+  ctx.fillStyle = '#b97e48';
   ctx.fillRect(0, 0, 512, 512);
 
-  // Fine mineral flecks
-  for (let i = 0; i < 1200; i++) {
-    const x = (Math.sin(i * 12.9898) * 43758.5453 % 1 + 1) % 1 * 512;
-    const y = (Math.sin(i * 78.233) * 19341.231 % 1 + 1) % 1 * 512;
-    const r = 0.6 + (i % 3) * 0.45;
-    ctx.fillStyle = i % 2 === 0 ? 'rgba(195,202,210,0.35)' : 'rgba(220,224,228,0.45)';
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fill();
-  }
+  const planks = 10;
+  const plankH = 512 / planks;
+  const tones = ['#c38750', '#b47741', '#cc9057', '#ab6f3b', '#bf824b'];
 
-  // Soft marble-like quartz veins
-  ctx.strokeStyle = 'rgba(176, 184, 194, 0.24)';
-  ctx.lineWidth = 2.2;
-  for (let v = 0; v < 5; v++) {
-    ctx.beginPath();
-    let y = 50 + v * 95;
-    ctx.moveTo(0, y);
-    for (let x = 32; x <= 512; x += 32) {
-      y += Math.sin(x * 0.025 + v * 1.9) * 12;
-      ctx.lineTo(x, y);
+  for (let p = 0; p < planks; p++) {
+    const y = p * plankH;
+    ctx.fillStyle = tones[p % tones.length];
+    ctx.fillRect(0, y, 512, plankH - 1.5);
+
+    ctx.strokeStyle = 'rgba(84, 46, 16, 0.22)';
+    ctx.lineWidth = 1.4;
+    for (let g = 0; g < 6; g++) {
+      const gy = y + 5 + g * (plankH / 6.5);
+      ctx.beginPath();
+      ctx.moveTo(0, gy);
+      for (let x = 0; x <= 512; x += 24) {
+        ctx.lineTo(x, gy + Math.sin(x * 0.024 + p * 1.7 + g) * 2.1);
+      }
+      ctx.stroke();
     }
-    ctx.stroke();
+
+    // Occasional subtle wood knot ring
+    if (p % 3 === 1) {
+      const kx = 120 + (p * 97) % 280;
+      const ky = y + plankH * 0.5;
+      ctx.strokeStyle = 'rgba(78, 42, 14, 0.26)';
+      ctx.beginPath();
+      ctx.ellipse(kx, ky, 14, 5, 0.12, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = 'rgba(68, 36, 12, 0.34)';
+    ctx.fillRect(0, y + plankH - 1.5, 512, 1.5);
   }
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(2, 1);
+  tex.repeat.set(2.2, 1.2);
   return tex;
 }
 
@@ -169,46 +208,75 @@ function createButcherBlockTexture(): THREE.CanvasTexture {
 }
 
 function createOakFloorTexture(): THREE.CanvasTexture {
+  // Warm earthy South African terracotta floor tiles
   const [canvas, ctx] = makeCanvas(512, 512);
-  ctx.fillStyle = '#8b6848';
+  ctx.fillStyle = '#d7c4ac'; // warm sandy mortar grout
   ctx.fillRect(0, 0, 512, 512);
 
-  const planks = 8;
-  const plankH = 512 / planks;
-  const plankShades = ['#9a7450', '#8d6846', '#a37d57', '#866242'];
+  const grid = 4;
+  const tileSize = 512 / grid;
+  const gap = 7;
+  const terracottaShades = ['#c66b47', '#b95e3c', '#cf754f', '#be6340', '#c86e4a'];
 
-  for (let p = 0; p < planks; p++) {
-    const y = p * plankH;
-    ctx.fillStyle = plankShades[p % plankShades.length];
-    ctx.fillRect(0, y, 512, plankH - 2);
+  for (let r = 0; r < grid; r++) {
+    for (let c = 0; c < grid; c++) {
+      const x = c * tileSize + gap * 0.5;
+      const y = r * tileSize + gap * 0.5;
+      const size = tileSize - gap;
+      const base = terracottaShades[(r * 3 + c * 2) % terracottaShades.length];
 
-    // Grain streaks
-    ctx.strokeStyle = 'rgba(65, 42, 22, 0.14)';
-    ctx.lineWidth = 1.3;
-    for (let g = 0; g < 6; g++) {
-      const gy = y + 6 + g * 9;
-      ctx.beginPath();
-      ctx.moveTo(0, gy);
-      for (let x = 0; x <= 512; x += 32) {
-        ctx.lineTo(x, gy + Math.sin(x * 0.02 + p + g) * 2);
+      ctx.fillStyle = base;
+      ctx.fillRect(x, y, size, size);
+
+      // Warm fired-clay tonal variation & subtle glaze sheen
+      ctx.fillStyle = 'rgba(255, 224, 190, 0.14)';
+      ctx.fillRect(x + 4, y + 4, size - 14, size * 0.42);
+      ctx.fillStyle = 'rgba(92, 38, 18, 0.15)';
+      ctx.fillRect(x + 4, y + size - 10, size - 8, 6);
+
+      // Speckled clay kiln flecks
+      for (let f = 0; f < 16; f++) {
+        const fx = x + 10 + (((r * 37 + c * 59 + f * 23) % 90) / 100) * (size - 20);
+        const fy = y + 10 + (((r * 61 + c * 43 + f * 31) % 90) / 100) * (size - 20);
+        ctx.fillStyle = f % 2 === 0 ? 'rgba(98, 42, 22, 0.2)' : 'rgba(255, 212, 175, 0.22)';
+        ctx.fillRect(fx, fy, 3, 2);
       }
-      ctx.stroke();
     }
-
-    // Horizontal seam
-    ctx.fillStyle = 'rgba(42, 28, 16, 0.45)';
-    ctx.fillRect(0, y + plankH - 2, 512, 2);
-
-    // Staggered vertical plank joint
-    const jointX = ((p * 173 + 90) % 440) + 36;
-    ctx.fillRect(jointX, y, 2, plankH);
   }
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(4.5, 4.5);
+  tex.repeat.set(4, 4);
+  return tex;
+}
+
+function createWarmPlasterTexture(): THREE.CanvasTexture {
+  const [canvas, ctx] = makeCanvas(512, 512);
+  const grad = ctx.createLinearGradient(0, 0, 0, 512);
+  grad.addColorStop(0, '#f5e6d2'); // warm cream upper plaster
+  grad.addColorStop(0.65, '#f0d8be'); // sunlit honey-cream mid
+  grad.addColorStop(1, '#e4be9c'); // soft terracotta warmth near lower dado
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 512, 512);
+
+  // Subtle hand-troweled limewash plaster mottling
+  for (let i = 0; i < 240; i++) {
+    const x = ((Math.sin(i * 15.7) * 43758.5) % 1 + 1) % 1 * 512;
+    const y = ((Math.sin(i * 63.3) * 19341.2) % 1 + 1) % 1 * 512;
+    const r = 14 + (i % 24);
+    ctx.fillStyle = i % 2 === 0 ? 'rgba(255, 248, 236, 0.14)' : 'rgba(205, 134, 88, 0.08)';
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.repeat.set(2.5, 1);
   return tex;
 }
 
@@ -332,6 +400,7 @@ export function createWorkshopMaterials(renderer: THREE.WebGLRenderer): Workshop
   const quartzTex = createQuartzTexture();
   const butcherTex = createButcherBlockTexture();
   const floorTex = createOakFloorTexture();
+  const plasterTex = createWarmPlasterTexture();
   const steelTex = createBrushedSteelTexture();
   const palletWoodTex = createPalletWoodTexture();
   const hdpeTex = createUpcycledHdpeTexture();
@@ -343,6 +412,7 @@ export function createWorkshopMaterials(renderer: THREE.WebGLRenderer): Workshop
     quartzTex,
     butcherTex,
     floorTex,
+    plasterTex,
     steelTex,
     palletWoodTex,
     hdpeTex,
@@ -354,32 +424,33 @@ export function createWorkshopMaterials(renderer: THREE.WebGLRenderer): Workshop
 
   const floorMat = new THREE.MeshStandardMaterial({
     map: floorTex,
-    roughness: 0.62,
+    roughness: 0.56,
     metalness: 0.04,
   });
 
   const wallMat = new THREE.MeshStandardMaterial({
-    color: 0xebe6dc,
+    map: plasterTex,
+    color: 0xffffff,
     roughness: 0.88,
     metalness: 0.0,
   });
 
   const ceilingMat = new THREE.MeshStandardMaterial({
-    color: 0xf4f2ed,
+    color: 0xfbf3e6,
     roughness: 0.92,
     metalness: 0.0,
   });
 
   const tileMat = new THREE.MeshStandardMaterial({
     map: tileTex,
-    roughness: 0.24,
-    metalness: 0.04,
+    roughness: 0.22,
+    metalness: 0.05,
   });
 
   const quartzMat = new THREE.MeshStandardMaterial({
     map: quartzTex,
-    roughness: 0.2,
-    metalness: 0.05,
+    roughness: 0.42,
+    metalness: 0.03,
   });
 
   const butcherBlockMat = new THREE.MeshStandardMaterial({
@@ -389,15 +460,15 @@ export function createWorkshopMaterials(renderer: THREE.WebGLRenderer): Workshop
   });
 
   const cabinetMat = new THREE.MeshStandardMaterial({
-    color: 0x3b524c, // Architectural sage-slate cabinetry
-    roughness: 0.56,
-    metalness: 0.06,
+    color: 0x3b6356, // Warm South African eucalyptus sage cabinetry
+    roughness: 0.54,
+    metalness: 0.05,
   });
 
   const cabinetDarkMat = new THREE.MeshStandardMaterial({
-    color: 0x2a3b37,
-    roughness: 0.6,
-    metalness: 0.08,
+    color: 0x2c423b,
+    roughness: 0.58,
+    metalness: 0.06,
   });
 
   const stainlessMat = new THREE.MeshStandardMaterial({
@@ -563,7 +634,7 @@ export function createWorkshopMaterials(renderer: THREE.WebGLRenderer): Workshop
   });
 
   const windowGlowMat = new THREE.MeshBasicMaterial({
-    color: 0xdff1ff,
+    color: 0xfff4e0,
   });
 
   const pendantGlowMat = new THREE.MeshStandardMaterial({
@@ -628,6 +699,7 @@ export function createWorkshopMaterials(renderer: THREE.WebGLRenderer): Workshop
     quartzTex,
     butcherTex,
     floorTex,
+    plasterTex,
     steelTex,
     palletWoodTex,
     hdpeTex,

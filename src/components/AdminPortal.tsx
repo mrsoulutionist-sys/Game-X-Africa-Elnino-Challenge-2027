@@ -69,6 +69,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [activeTab, setActiveTab] = useState<AdminSectionTab>('system');
   const [timerEnabled, setTimerEnabled] = useState(systemConfig.competitionTimerEnabled);
   const [compostLimit, setCompostLimit] = useState(systemConfig.compostYieldCycleLimit);
+  const [solarDustLimit, setSolarDustLimit] = useState(systemConfig.solarDustYieldTriggerLimit);
+  const [maxHarvestCap, setMaxHarvestCap] = useState(systemConfig.maxHarvestHoursCap);
   const [banners, setBanners] = useState<ChallengeBannerItem[]>(systemConfig.banners);
   const [newBannerText, setNewBannerText] = useState('');
   const [newBannerStyle, setNewBannerStyle] = useState<BannerStyle>('scroll');
@@ -94,10 +96,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   useEffect(() => {
     setTimerEnabled(systemConfig.competitionTimerEnabled);
     setCompostLimit(systemConfig.compostYieldCycleLimit);
+    setSolarDustLimit(systemConfig.solarDustYieldTriggerLimit);
+    setMaxHarvestCap(systemConfig.maxHarvestHoursCap);
     setBanners(systemConfig.banners);
   }, [
     systemConfig.competitionTimerEnabled,
     systemConfig.compostYieldCycleLimit,
+    systemConfig.solarDustYieldTriggerLimit,
+    systemConfig.maxHarvestHoursCap,
     systemConfig.banners,
   ]);
 
@@ -114,7 +120,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     nextTimer: boolean,
     nextLimit: number,
     nextBanners: ChallengeBannerItem[],
-    successText: string
+    successText: string,
+    nextSolarLimit = solarDustLimit,
+    nextMaxCap = maxHarvestCap
   ): Promise<boolean> => {
     setSavingConfig(true);
     setConfigError(null);
@@ -124,6 +132,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         admin,
         competitionTimerEnabled: nextTimer,
         compostYieldCycleLimit: nextLimit,
+        solarDustYieldTriggerLimit: nextSolarLimit,
+        maxHarvestHoursCap: nextMaxCap,
         banners: nextBanners,
       });
       setConfigSavedNotice(successText);
@@ -158,7 +168,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       timerEnabled,
       compostLimit,
       banners,
-      'Global challenge rules & compost settings synced live.'
+      'Global challenge rules, solar dust trigger & harvest cycle settings synced live.',
+      solarDustLimit,
+      maxHarvestCap
     );
   };
 
@@ -477,8 +489,51 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 className="w-full accent-emerald-500 cursor-pointer"
               />
             </div>
+
+            <div>
+              <label
+                htmlFor="solar-dust-limit"
+                className="block text-xs font-semibold text-slate-200 mb-1"
+              >
+                Yields Before Room 4 Solar Dust Maintenance:{' '}
+                <span className="text-amber-300 font-mono font-bold">
+                  Every {solarDustLimit} Yield{solarDustLimit === 1 ? '' : 's'}
+                </span>
+              </label>
+              <input
+                id="solar-dust-limit"
+                type="range"
+                min={1}
+                max={10}
+                value={solarDustLimit}
+                onChange={(e) => setSolarDustLimit(Number(e.target.value))}
+                className="w-full accent-amber-400 cursor-pointer"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="max-harvest-cap"
+                className="block text-xs font-semibold text-slate-200 mb-1"
+              >
+                Max Harvest Cycle Cap:{' '}
+                <span className="text-sky-300 font-mono font-bold">
+                  {maxHarvestCap}h (24h Standard Max)
+                </span>
+              </label>
+              <input
+                id="max-harvest-cap"
+                type="range"
+                min={12}
+                max={24}
+                value={maxHarvestCap}
+                onChange={(e) => setMaxHarvestCap(Number(e.target.value))}
+                className="w-full accent-sky-400 cursor-pointer"
+              />
+            </div>
+
             <p className="text-[11px] text-slate-400">
-              After {compostLimit} crop yield{compostLimit === 1 ? '' : 's'}, students walk into Door 3 Compost to prepare a fresh compost batch before planting again.
+              After {compostLimit} yield{compostLimit === 1 ? '' : 's'}, learners refresh compost in Door 3. After {solarDustLimit} yield{solarDustLimit === 1 ? '' : 's'}, El Niño dust triggers Room 4 solar cleaning &amp; tilt calibration.
             </p>
 
             {configSavedNotice && (
@@ -498,7 +553,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white py-2.5 px-4 text-sm font-semibold cursor-pointer transition-colors"
             >
               <Save className="w-4 h-4" />
-              <span>{savingConfig ? 'Saving Changes...' : 'Save Compost Cycle Limit'}</span>
+              <span>{savingConfig ? 'Saving Changes...' : 'Save Global Rules & Thresholds'}</span>
             </button>
           </form>
         </div>

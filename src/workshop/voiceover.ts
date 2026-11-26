@@ -4,6 +4,11 @@ export interface VoiceoverState {
   active: boolean;
   speaking: boolean;
   text: string;
+  hideText?: boolean;
+}
+
+export interface VoiceoverSpeakOptions {
+  hideText?: boolean;
 }
 
 type VoiceoverListener = (state: VoiceoverState) => void;
@@ -40,10 +45,32 @@ const STEP_NARRATION: Record<BuildStepId, string> = {
 const CUTAWAY_NARRATION =
   'Look closely inside! Below is the shaded water reservoir. Above it sits an oxygen air gap so roots stay healthy. And those cotton wicks use adhesion and cohesion to pull water upward automatically—pure physics!';
 
+export function getSolarStepVocalGuide(step: 1 | 2 | 3 | 4 | 5, gradeTier: GradeTier): string {
+  if (step === 1) {
+    return gradeTier === '4-6'
+      ? 'Welcome to the Solar Workshop! Step 1: Snap the four PVC stand parts together on the workbench. Raising the panels lets cool air flow underneath so hot El Niño days do not overheat them!'
+      : 'Welcome to the Solar and PVC Lab! Step 1: Assemble the four elevated PVC frame parts on the workbench. Air circulation beneath the rig prevents thermal efficiency loss during El Niño heatwaves.';
+  }
+  if (step === 2) {
+    return gradeTier === '4-6'
+      ? 'Step 2: Snap on the aluminum frame, photovoltaic cells, and protective glass! PV cells catch sunlight photons and turn them straight into electricity!'
+      : 'Step 2: Build the solar panel stack—aluminum border, photovoltaic cells, and tempered glass. Photovoltaic cells convert incoming solar photons into direct current electricity.';
+  }
+  if (step === 3) {
+    return gradeTier === '10-12'
+      ? 'Step 3: Compare Series versus Parallel wiring on the Digital Multimeter, then route cables in order—Charge Controller, Battery Bank, Inverter, and Facility Bus. Series sums voltage for heavy pumps; Parallel sums current for faster battery charging.'
+      : 'Step 3: Connect the four power cables in order—Charge Controller, Battery Bank, Inverter, and Facility Bus! Try Series for higher voltage to run water pumps, or Parallel for higher amps to charge batteries faster.';
+  }
+  if (step === 4) {
+    return 'Step 4: Adjust the Tilt and Rotate sliders to point your solar panel straight into the sun! Aim for ninety percent or higher to unlock Optimal Solar Capture!';
+  }
+  return 'Your Solar Power Hub is active! Keep the panel angled toward the sun and wash off El Niño dust whenever output drops so the Kitchen, Garden pumps, and Compost Lab stay powered!';
+}
+
 class WorkshopVoiceover {
   private muted = false;
   private unlocked = false;
-  private state: VoiceoverState = { active: false, speaking: false, text: '' };
+  private state: VoiceoverState = { active: false, speaking: false, text: '', hideText: false };
   private hideTimer: number | null = null;
   private listeners = new Set<VoiceoverListener>();
   private gradeTier: GradeTier = '7-9';
@@ -108,7 +135,7 @@ class WorkshopVoiceover {
         // ignore restricted speechSynthesis
       }
     }
-    this.emit({ active: false, speaking: false, text: '' });
+    this.emit({ active: false, speaking: false, text: '', hideText: false });
   }
 
   public speakStep(stepId: BuildStepId, isResetOrInit = false): void {
@@ -129,36 +156,41 @@ class WorkshopVoiceover {
     this.speak(CUTAWAY_NARRATION);
   }
 
-  public speakCustom(text: string): void {
-    this.speak(text);
+  public speakSolarStep(step: 1 | 2 | 3 | 4 | 5): void {
+    this.speak(getSolarStepVocalGuide(step, this.gradeTier), { hideText: true });
   }
 
-  private showPopupOnly(text: string, durationMs: number): void {
+  public speakCustom(text: string, options?: VoiceoverSpeakOptions): void {
+    this.speak(text, options);
+  }
+
+  private showPopupOnly(text: string, durationMs: number, hideText = false): void {
     if (this.hideTimer !== null) {
       window.clearTimeout(this.hideTimer);
     }
-    this.emit({ active: true, speaking: true, text });
+    this.emit({ active: true, speaking: true, text, hideText });
     this.hideTimer = window.setTimeout(() => {
       this.hideTimer = null;
-      this.emit({ active: false, speaking: false, text: '' });
+      this.emit({ active: false, speaking: false, text: '', hideText: false });
     }, durationMs);
   }
 
-  public speak(text: string): void {
+  public speak(text: string, options?: VoiceoverSpeakOptions): void {
+    const hideText = Boolean(options?.hideText);
     if (this.hideTimer !== null) {
       window.clearTimeout(this.hideTimer);
       this.hideTimer = null;
     }
 
     if (this.muted) {
-      this.showPopupOnly(text, 4800);
+      this.showPopupOnly(text, 4800, hideText);
       return;
     }
 
-    this.emit({ active: true, speaking: true, text });
+    this.emit({ active: true, speaking: true, text, hideText });
 
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-      this.showPopupOnly(text, Math.max(4200, text.length * 52));
+      this.showPopupOnly(text, Math.max(4200, text.length * 52), hideText);
       return;
     }
 
@@ -175,19 +207,19 @@ class WorkshopVoiceover {
           window.clearTimeout(this.hideTimer);
           this.hideTimer = null;
         }
-        this.emit({ active: false, speaking: false, text: '' });
+        this.emit({ active: false, speaking: false, text: '', hideText: false });
       };
 
       utter.onend = finish;
       utter.onerror = () => {
-        this.showPopupOnly(text, 4800);
+        this.showPopupOnly(text, 4800, hideText);
       };
 
       synth.speak(utter);
 
       this.hideTimer = window.setTimeout(finish, Math.max(5800, text.length * 66));
     } catch {
-      this.showPopupOnly(text, 4800);
+      this.showPopupOnly(text, 4800, hideText);
     }
   }
 }

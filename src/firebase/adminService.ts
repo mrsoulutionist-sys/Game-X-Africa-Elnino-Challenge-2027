@@ -38,8 +38,10 @@ export type BannerStage =
   | 'kitchen'
   | 'garden'
   | 'compost'
+  | 'solar'
   | 'harvest_ready'
-  | 'compost_needed';
+  | 'compost_needed'
+  | 'solar_maintenance';
 
 export interface ChallengeBannerItem {
   id: string;
@@ -54,8 +56,10 @@ export const BANNER_STAGE_OPTIONS: Array<{ id: BannerStage; label: string }> = [
   { id: 'kitchen', label: 'Door 1 · Kitchen PVC Lab' },
   { id: 'garden', label: 'Door 2 · Garden Yard & El Niño' },
   { id: 'compost', label: 'Door 3 · Compost & Mulch' },
+  { id: 'solar', label: 'Room 4 · Solar & PVC Workshop' },
   { id: 'harvest_ready', label: 'Milestone · Crop Harvest Ready' },
   { id: 'compost_needed', label: 'Alert · Compost Refresh Needed' },
+  { id: 'solar_maintenance', label: 'Alert · Solar Dust Clean Needed' },
 ];
 
 export const MAX_ADMIN_BANNERS = 12;
@@ -65,6 +69,8 @@ export const BANNER_DISPLAY_DURATION_MS = 60_000;
 export interface SystemConfigState {
   competitionTimerEnabled: boolean;
   compostYieldCycleLimit: number;
+  solarDustYieldTriggerLimit: number;
+  maxHarvestHoursCap: number;
   challengeBannerText: string;
   banners: ChallengeBannerItem[];
   updatedByAdminName: string;
@@ -103,6 +109,8 @@ export interface CompetitionRunRecord {
 export const DEFAULT_SYSTEM_CONFIG: SystemConfigState = {
   competitionTimerEnabled: false,
   compostYieldCycleLimit: 3,
+  solarDustYieldTriggerLimit: 3,
+  maxHarvestHoursCap: 24,
   challengeBannerText: '',
   banners: [],
   updatedByAdminName: 'System Default',
@@ -234,8 +242,10 @@ function sanitizeBannerStage(raw: unknown): BannerStage {
   return raw === 'kitchen' ||
     raw === 'garden' ||
     raw === 'compost' ||
+    raw === 'solar' ||
     raw === 'harvest_ready' ||
-    raw === 'compost_needed'
+    raw === 'compost_needed' ||
+    raw === 'solar_maintenance'
     ? raw
     : 'all';
 }
@@ -275,6 +285,14 @@ export function subscribeToSystemConfig(
         typeof d.compostYieldCycleLimit === 'number'
           ? Math.round(d.compostYieldCycleLimit)
           : 3;
+      const rawSolarTrigger =
+        typeof d.solarDustYieldTriggerLimit === 'number'
+          ? Math.round(d.solarDustYieldTriggerLimit)
+          : 3;
+      const rawMaxCap =
+        typeof d.maxHarvestHoursCap === 'number'
+          ? Math.round(d.maxHarvestHoursCap)
+          : 24;
       const legacyText =
         typeof d.challengeBannerText === 'string'
           ? d.challengeBannerText.trim().slice(0, 180)
@@ -294,6 +312,8 @@ export function subscribeToSystemConfig(
       onUpdate({
         competitionTimerEnabled: Boolean(d.competitionTimerEnabled),
         compostYieldCycleLimit: Math.max(1, Math.min(10, rawLimit)),
+        solarDustYieldTriggerLimit: Math.max(1, Math.min(10, rawSolarTrigger)),
+        maxHarvestHoursCap: Math.max(12, Math.min(24, rawMaxCap)),
         challengeBannerText: legacyText,
         banners: parsedBanners,
         updatedByAdminName:
@@ -311,11 +331,21 @@ export async function updateSystemConfigAsAdmin(params: {
   admin: AdminProfile;
   competitionTimerEnabled: boolean;
   compostYieldCycleLimit: number;
+  solarDustYieldTriggerLimit?: number;
+  maxHarvestHoursCap?: number;
   challengeBannerText?: string;
   banners?: ChallengeBannerItem[];
 }): Promise<void> {
   const tokenId = makeId('admtok');
   const cleanLimit = Math.max(1, Math.min(10, Math.round(params.compostYieldCycleLimit || 3)));
+  const cleanSolarTrigger = Math.max(
+    1,
+    Math.min(10, Math.round(params.solarDustYieldTriggerLimit ?? 3))
+  );
+  const cleanMaxHarvestCap = Math.max(
+    12,
+    Math.min(24, Math.round(params.maxHarvestHoursCap ?? 24))
+  );
   const cleanBanners = sanitizeBannerList(params.banners ?? []);
   const firstActive = cleanBanners.find((b) => b.active);
   const cleanBanner = (
@@ -336,6 +366,8 @@ export async function updateSystemConfigAsAdmin(params: {
     configId: 'global',
     competitionTimerEnabled: Boolean(params.competitionTimerEnabled),
     compostYieldCycleLimit: cleanLimit,
+    solarDustYieldTriggerLimit: cleanSolarTrigger,
+    maxHarvestHoursCap: cleanMaxHarvestCap,
     challengeBannerText: cleanBanner,
     banners: cleanBanners,
     actionTokenId: tokenId,

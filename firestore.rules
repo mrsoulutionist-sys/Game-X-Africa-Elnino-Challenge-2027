@@ -15,6 +15,46 @@ service cloud.firestore {
       return resource.data;
     }
 
+    function isIntIn(v, lo, hi) {
+      return v is int && v >= lo && v <= hi;
+    }
+
+    function isNumIn(v, lo, hi) {
+      return v is number && v >= lo && v <= hi;
+    }
+
+    function isStrIn(v, lo, hi) {
+      return v is string && v.size() >= lo && v.size() <= hi;
+    }
+
+    function optBool(d, k) {
+      return !(k in d) || d[k] is bool;
+    }
+
+    function optInt(d, k, lo, hi) {
+      return !(k in d) || isIntIn(d[k], lo, hi);
+    }
+
+    function optNum(d, k, lo, hi) {
+      return !(k in d) || isNumIn(d[k], lo, hi);
+    }
+
+    function optNullInt(d, k, lo, hi) {
+      return !(k in d) || d[k] == null || isIntIn(d[k], lo, hi);
+    }
+
+    function optEnum(d, k, allowed) {
+      return !(k in d) || d[k] in allowed;
+    }
+
+    function optNullEnum(d, k, allowed) {
+      return !(k in d) || d[k] == null || d[k] in allowed;
+    }
+
+    function optStr(d, k, lo, hi) {
+      return !(k in d) || isStrIn(d[k], lo, hi);
+    }
+
     function isValidFarmerKey(key) {
       return key is string && key.size() == 64 && key.matches('^[a-f0-9]{64}$');
     }
@@ -23,69 +63,63 @@ service cloud.firestore {
       return id is string && id.size() >= 2 && id.size() <= 120 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
+    function isValidTierEntry(t) {
+      return t is map
+        && t.keys().hasOnly([
+          'tierIndex',
+          'pipeInstalled',
+          'cropId',
+          'plantedAtMs',
+          'wateredAtMs',
+          'waterDurationHours',
+          'harvested'
+        ]);
+    }
+
     function isValidTierList(tiers) {
       return tiers is list
         && tiers.size() <= 6
-        && (
-          tiers.size() == 0
-          || (
-            tiers[0] is map
-            && tiers[0].keys().hasOnly([
-              'tierIndex',
-              'pipeInstalled',
-              'cropId',
-              'plantedAtMs',
-              'wateredAtMs',
-              'waterDurationHours',
-              'harvested'
-            ])
-          )
-        );
+        && (tiers.size() == 0 || isValidTierEntry(tiers[0]));
+    }
+
+    function isValidBuiltRackEntry(r) {
+      return r is map
+        && r.keys().hasAll([
+          'rackIndex',
+          'materialId',
+          'isRecyclable',
+          'builderName',
+          'builtAtMs',
+          'quickBuilt'
+        ])
+        && r.keys().hasOnly([
+          'rackIndex',
+          'materialId',
+          'isRecyclable',
+          'builderName',
+          'builtAtMs',
+          'quickBuilt'
+        ])
+        && isIntIn(r.rackIndex, 0, 5)
+        && r.materialId in [
+          'reclaimed_pvc',
+          'pallet_wood',
+          'scrap_metal',
+          'upcycled_hdpe',
+          'standard_pvc',
+          'standard_timber'
+        ]
+        && r.isRecyclable is bool
+        && isStrIn(r.builderName, 1, 40)
+        && r.builtAtMs is int
+        && r.builtAtMs >= 0
+        && r.quickBuilt is bool;
     }
 
     function isValidBuiltRackList(builtRacks) {
       return builtRacks is list
         && builtRacks.size() <= 6
-        && (
-          builtRacks.size() == 0
-          || (
-            builtRacks[0] is map
-            && builtRacks[0].keys().hasAll([
-              'rackIndex',
-              'materialId',
-              'isRecyclable',
-              'builderName',
-              'builtAtMs',
-              'quickBuilt'
-            ])
-            && builtRacks[0].keys().hasOnly([
-              'rackIndex',
-              'materialId',
-              'isRecyclable',
-              'builderName',
-              'builtAtMs',
-              'quickBuilt'
-            ])
-            && builtRacks[0].rackIndex is int
-            && builtRacks[0].rackIndex >= 0
-            && builtRacks[0].rackIndex <= 5
-            && builtRacks[0].materialId in [
-              'reclaimed_pvc',
-              'pallet_wood',
-              'scrap_metal',
-              'upcycled_hdpe',
-              'standard_pvc',
-              'standard_timber'
-            ]
-            && builtRacks[0].isRecyclable is bool
-            && builtRacks[0].builderName is string
-            && builtRacks[0].builderName.size() >= 1
-            && builtRacks[0].builderName.size() <= 40
-            && builtRacks[0].builtAtMs is int
-            && builtRacks[0].builtAtMs >= 0
-            && builtRacks[0].quickBuilt is bool
-          )
-        );
+        && (builtRacks.size() == 0 || isValidBuiltRackEntry(builtRacks[0]));
     }
 
     function isValidGrade(g) {
@@ -102,36 +136,50 @@ service cloud.firestore {
       ];
     }
 
-    function isValidOptionalResilienceFields(data) {
-      return (!('jojoInstalled' in data) || data.jojoInstalled is bool)
-        && (!('jojoLitres' in data) || (data.jojoLitres is number && data.jojoLitres >= 0 && data.jojoLitres <= 500))
-        && (!('jojoCapacity' in data) || (data.jojoCapacity is number && data.jojoCapacity >= 20 && data.jojoCapacity <= 500))
-        && (!('shadeClothInstalled' in data) || data.shadeClothInstalled is bool)
-        && (!('windbreakInstalled' in data) || data.windbreakInstalled is bool)
-        && (!('stormBraceInstalled' in data) || data.stormBraceInstalled is bool)
-        && (!('weatherMode' in data) || data.weatherMode in ['normal', 'rain_storm', 'windy', 'elnino_watch', 'heatwave'])
-        && (!('litresSaved' in data) || (data.litresSaved is number && data.litresSaved >= 0 && data.litresSaved <= 1000000))
-        && (!('foodServings' in data) || (data.foodServings is int && data.foodServings >= 0 && data.foodServings <= 1000000))
-        && (!('door3DripBottleType' in data) || data.door3DripBottleType == null || data.door3DripBottleType in ['clear_soda', 'green_sparkling', 'clear_water'])
-        && (!('door3DripStep' in data) || (data.door3DripStep is int && data.door3DripStep >= 0 && data.door3DripStep <= 4))
-        && (!('door3CompostContainer' in data) || data.door3CompostContainer == null || data.door3CompostContainer in ['bucket', 'crate', 'pallet'])
-        && (!('door3CompostStep' in data) || (data.door3CompostStep is int && data.door3CompostStep >= 0 && data.door3CompostStep <= 6))
-        && (!('door3CompostRejectTested' in data) || (data.door3CompostRejectTested is int && data.door3CompostRejectTested >= 0 && data.door3CompostRejectTested <= 4))
-        && (!('door3MulchMaterial' in data) || data.door3MulchMaterial == null || data.door3MulchMaterial in ['cardboard', 'newspaper'])
-        && (!('door3MulchStep' in data) || (data.door3MulchStep is int && data.door3MulchStep >= 0 && data.door3MulchStep <= 4))
-        && (!('compostYieldsSinceRefresh' in data) || (data.compostYieldsSinceRefresh is int && data.compostYieldsSinceRefresh >= 0 && data.compostYieldsSinceRefresh <= 50))
-        && (!('compostCycleCount' in data) || (data.compostCycleCount is int && data.compostCycleCount >= 0 && data.compostCycleCount <= 10000))
-        && (!('bestCompetitionMs' in data) || data.bestCompetitionMs == null || (data.bestCompetitionMs is int && data.bestCompetitionMs >= 0 && data.bestCompetitionMs <= 86400000))
-        && (!('builtRacks' in data) || isValidBuiltRackList(data.builtRacks))
-        && (!('ecoBuilderPoints' in data) || (data.ecoBuilderPoints is int && data.ecoBuilderPoints >= 0 && data.ecoBuilderPoints <= 100000));
+    function isValidSolarFields(d) {
+      return optInt(d, 'solarStep', 1, 5)
+        && optInt(d, 'solarFrameParts', 0, 4)
+        && optInt(d, 'solarPanelParts', 0, 3)
+        && optEnum(d, 'solarWiringMode', ['series', 'parallel'])
+        && optInt(d, 'solarWiredStage', 0, 4)
+        && optInt(d, 'solarTiltDeg', 0, 75)
+        && optInt(d, 'solarAzimuthDeg', -90, 90)
+        && optInt(d, 'solarDustLevel', 0, 100)
+        && optInt(d, 'yieldsSinceSolarClean', 0, 50)
+        && optInt(d, 'solarCleanCount', 0, 10000);
     }
 
-    function isValidStudentMetaFields(data) {
-      return (!('role' in data) || data.role == 'student')
-        && (!('schoolName' in data) || (data.schoolName is string && data.schoolName.size() >= 1 && data.schoolName.size() <= 100))
-        && (!('schoolKey' in data) || (data.schoolKey is string && data.schoolKey.size() >= 1 && data.schoolKey.size() <= 100))
-        && (!('grade' in data) || isValidGrade(data.grade))
-        && (!('teacherName' in data) || (data.teacherName is string && data.teacherName.size() <= 60));
+    function isValidOptionalResilienceFields(d) {
+      return optBool(d, 'jojoInstalled')
+        && optNum(d, 'jojoLitres', 0, 500)
+        && optNum(d, 'jojoCapacity', 20, 500)
+        && optBool(d, 'shadeClothInstalled')
+        && optBool(d, 'windbreakInstalled')
+        && optBool(d, 'stormBraceInstalled')
+        && optEnum(d, 'weatherMode', ['normal', 'rain_storm', 'windy', 'elnino_watch', 'heatwave'])
+        && optNum(d, 'litresSaved', 0, 1000000)
+        && optInt(d, 'foodServings', 0, 1000000)
+        && optNullEnum(d, 'door3DripBottleType', ['clear_soda', 'green_sparkling', 'clear_water'])
+        && optInt(d, 'door3DripStep', 0, 4)
+        && optNullEnum(d, 'door3CompostContainer', ['bucket', 'crate', 'pallet'])
+        && optInt(d, 'door3CompostStep', 0, 6)
+        && optInt(d, 'door3CompostRejectTested', 0, 4)
+        && optNullEnum(d, 'door3MulchMaterial', ['cardboard', 'newspaper'])
+        && optInt(d, 'door3MulchStep', 0, 4)
+        && optInt(d, 'compostYieldsSinceRefresh', 0, 50)
+        && optInt(d, 'compostCycleCount', 0, 10000)
+        && optNullInt(d, 'bestCompetitionMs', 0, 86400000)
+        && (!('builtRacks' in d) || isValidBuiltRackList(d.builtRacks))
+        && optInt(d, 'ecoBuilderPoints', 0, 100000)
+        && isValidSolarFields(d);
+    }
+
+    function isValidStudentMetaFields(d) {
+      return (!('role' in d) || d.role == 'student')
+        && optStr(d, 'schoolName', 1, 100)
+        && optStr(d, 'schoolKey', 1, 100)
+        && (!('grade' in d) || isValidGrade(d.grade))
+        && optStr(d, 'teacherName', 0, 60);
     }
 
     function isValidFarmerDoc(data, pathKey) {
@@ -175,6 +223,16 @@ service cloud.firestore {
           'bestCompetitionMs',
           'builtRacks',
           'ecoBuilderPoints',
+          'solarStep',
+          'solarFrameParts',
+          'solarPanelParts',
+          'solarWiringMode',
+          'solarWiredStage',
+          'solarTiltDeg',
+          'solarAzimuthDeg',
+          'solarDustLevel',
+          'yieldsSinceSolarClean',
+          'solarCleanCount',
           'role',
           'schoolName',
           'schoolKey',
@@ -185,24 +243,68 @@ service cloud.firestore {
         ])
         && data.farmerKey is string
         && data.farmerKey == pathKey
-        && data.farmerName is string
-        && data.farmerName.size() >= 1
-        && data.farmerName.size() <= 40
-        && data.activeZone in ['kitchen', 'garden', 'compost']
-        && data.kitchenStep is string
-        && data.kitchenStep.size() >= 3
-        && data.kitchenStep.size() <= 40
-        && data.rackSize is int
-        && data.rackSize >= 1
-        && data.rackSize <= 6
+        && isStrIn(data.farmerName, 1, 40)
+        && data.activeZone in ['kitchen', 'garden', 'compost', 'solar']
+        && isStrIn(data.kitchenStep, 3, 40)
+        && isIntIn(data.rackSize, 1, 6)
         && isValidTierList(data.tiers)
-        && data.totalHarvestedCount is int
-        && data.totalHarvestedCount >= 0
-        && data.totalHarvestedCount <= 100000
+        && isIntIn(data.totalHarvestedCount, 0, 100000)
         && isValidOptionalResilienceFields(data)
         && isValidStudentMetaFields(data)
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
+    }
+
+    function isValidFarmerUpdate(d, e, pathKey) {
+      return isValidFarmerDoc(d, pathKey)
+        && d.farmerKey == e.farmerKey
+        && d.createdAt == e.createdAt
+        && d.updatedAt == request.time
+        && d.diff(e).affectedKeys().hasOnly([
+          'farmerName',
+          'activeZone',
+          'kitchenStep',
+          'rackSize',
+          'tiers',
+          'totalHarvestedCount',
+          'jojoInstalled',
+          'jojoLitres',
+          'jojoCapacity',
+          'shadeClothInstalled',
+          'windbreakInstalled',
+          'stormBraceInstalled',
+          'weatherMode',
+          'litresSaved',
+          'foodServings',
+          'door3DripBottleType',
+          'door3DripStep',
+          'door3CompostContainer',
+          'door3CompostStep',
+          'door3CompostRejectTested',
+          'door3MulchMaterial',
+          'door3MulchStep',
+          'compostYieldsSinceRefresh',
+          'compostCycleCount',
+          'bestCompetitionMs',
+          'builtRacks',
+          'ecoBuilderPoints',
+          'solarStep',
+          'solarFrameParts',
+          'solarPanelParts',
+          'solarWiringMode',
+          'solarWiredStage',
+          'solarTiltDeg',
+          'solarAzimuthDeg',
+          'solarDustLevel',
+          'yieldsSinceSolarClean',
+          'solarCleanCount',
+          'role',
+          'schoolName',
+          'schoolKey',
+          'grade',
+          'teacherName',
+          'updatedAt'
+        ]);
     }
 
     function isValidParentGrades(grades) {
@@ -706,7 +808,7 @@ service cloud.firestore {
         && b.text.size() >= 2
         && b.text.size() <= 180
         && b.style in ['scroll', 'flash']
-        && b.stage in ['all', 'kitchen', 'garden', 'compost', 'harvest_ready', 'compost_needed']
+        && b.stage in ['all', 'kitchen', 'garden', 'compost', 'solar', 'harvest_ready', 'compost_needed', 'solar_maintenance']
         && b.active is bool;
     }
 
@@ -730,6 +832,8 @@ service cloud.firestore {
           'configId',
           'competitionTimerEnabled',
           'compostYieldCycleLimit',
+          'solarDustYieldTriggerLimit',
+          'maxHarvestHoursCap',
           'challengeBannerText',
           'banners',
           'actionTokenId',
@@ -741,6 +845,8 @@ service cloud.firestore {
         && data.compostYieldCycleLimit is int
         && data.compostYieldCycleLimit >= 1
         && data.compostYieldCycleLimit <= 10
+        && (!('solarDustYieldTriggerLimit' in data) || (data.solarDustYieldTriggerLimit is int && data.solarDustYieldTriggerLimit >= 1 && data.solarDustYieldTriggerLimit <= 10))
+        && (!('maxHarvestHoursCap' in data) || (data.maxHarvestHoursCap is int && data.maxHarvestHoursCap >= 12 && data.maxHarvestHoursCap <= 24))
         && data.challengeBannerText is string
         && data.challengeBannerText.size() <= 180
         && (!('banners' in data) || isValidBannerList(data.banners))
@@ -1047,45 +1153,7 @@ service cloud.firestore {
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time;
       allow update: if isValidFarmerKey(farmerKey)
-        && isValidFarmerDoc(incoming(), farmerKey)
-        && incoming().farmerKey == existing().farmerKey
-        && incoming().createdAt == existing().createdAt
-        && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasOnly([
-          'farmerName',
-          'activeZone',
-          'kitchenStep',
-          'rackSize',
-          'tiers',
-          'totalHarvestedCount',
-          'jojoInstalled',
-          'jojoLitres',
-          'jojoCapacity',
-          'shadeClothInstalled',
-          'windbreakInstalled',
-          'stormBraceInstalled',
-          'weatherMode',
-          'litresSaved',
-          'foodServings',
-          'door3DripBottleType',
-          'door3DripStep',
-          'door3CompostContainer',
-          'door3CompostStep',
-          'door3CompostRejectTested',
-          'door3MulchMaterial',
-          'door3MulchStep',
-          'compostYieldsSinceRefresh',
-          'compostCycleCount',
-          'bestCompetitionMs',
-          'builtRacks',
-          'ecoBuilderPoints',
-          'role',
-          'schoolName',
-          'schoolKey',
-          'grade',
-          'teacherName',
-          'updatedAt'
-        ]);
+        && isValidFarmerUpdate(incoming(), existing(), farmerKey);
       allow delete: if false;
     }
 

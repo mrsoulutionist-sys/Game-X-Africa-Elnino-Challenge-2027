@@ -28,10 +28,23 @@ import { buildHydroponicRig, type HydroponicRigHandle } from './hydroponicRigBui
 import { buildKitchenWorkshopRoom, type AABB, type KitchenRoomHandle } from './kitchenRoomBuilder';
 import { createWorkshopMaterials, type WorkshopMaterials } from './materials';
 import { DynamicSponsorController } from './sponsorSignage';
+import { DEFAULT_SOLAR_PROGRESS, type SolarProgressState } from './solarData';
+import {
+  buildSolarWorkshop,
+  type SolarTargetKind,
+  type SolarWorkshopHandle,
+} from './solarWorkshopBuilder';
 import { BUILD_STEPS, type BuildStepId, type GradeTier, type ToolId } from './steps';
 import { workshopVoiceover } from './voiceover';
 
-export type GardenTargetKind = 'rack' | 'jojo' | 'weather' | 'kitchen_door' | 'compost_door' | null;
+export type GardenTargetKind =
+  | 'rack'
+  | 'jojo'
+  | 'weather'
+  | 'kitchen_door'
+  | 'compost_door'
+  | 'solar_door'
+  | null;
 export type CompostTargetKind = CompostAnchorTarget | null;
 
 export interface WorkshopHudState {
@@ -50,6 +63,7 @@ export interface WorkshopHudState {
   totalSubSteps: number;
   gardenTarget: GardenTargetKind;
   compostTarget: CompostTargetKind;
+  solarTarget: SolarTargetKind;
   rackBuildSession: RackBuildSessionState | null;
   rackSubActionLabel: string;
 }
@@ -85,6 +99,7 @@ export interface SceneCallbacks {
     bonusLitres?: number,
     narration?: string
   ) => void;
+  onSolarAction?: (target: SolarTargetKind) => void;
 }
 
 export class KitchenWorkshopScene {
@@ -105,6 +120,7 @@ export class KitchenWorkshopScene {
   private rig!: HydroponicRigHandle;
   private garden!: GardenYardHandle;
   private compost!: CompostStationHandle;
+  private solar!: SolarWorkshopHandle;
 
   private isSoftwareGl = false;
   private disposed = false;
@@ -115,7 +131,7 @@ export class KitchenWorkshopScene {
 
   // Player & Input state
   private yaw = 0;
-  private pitch = -0.15;
+  private pitch = -0.09;
   private keys = new Set<string>();
   private stickX = 0;
   private stickY = 0;
@@ -132,6 +148,8 @@ export class KitchenWorkshopScene {
   private doorCooldownUntilMs = 0;
   private gardenTarget: GardenTargetKind = null;
   private compostTarget: CompostTargetKind = null;
+  private solarTarget: SolarTargetKind = null;
+  private solarState: SolarProgressState = { ...DEFAULT_SOLAR_PROGRESS };
   private door3Progress: Door3ProgressState = { ...DEFAULT_DOOR3_PROGRESS };
   private resilience: GardenResilienceState = {
     jojoInstalled: false,
@@ -163,6 +181,7 @@ export class KitchenWorkshopScene {
   private lastEmittedProgress = -1;
   private lastGardenTarget: GardenTargetKind = null;
   private lastCompostTarget: CompostTargetKind = null;
+  private lastSolarTarget: SolarTargetKind = null;
   private lastRackBuildSig = '';
 
   // Pre-allocated math helpers
@@ -238,9 +257,9 @@ export class KitchenWorkshopScene {
 
     const w = this.container.clientWidth || window.innerWidth;
     const h = this.container.clientHeight || window.innerHeight;
-    this.camera = new THREE.PerspectiveCamera(62, w / Math.max(1, h), 0.08, 45);
+    this.camera = new THREE.PerspectiveCamera(64, w / Math.max(1, h), 0.08, 72);
     this.camera.rotation.order = 'YXZ';
-    this.camera.position.set(0, PLAYER_EYE_Y, 2.35);
+    this.camera.position.set(0, PLAYER_EYE_Y, 3.08);
     this.camera.rotation.y = this.yaw;
     this.camera.rotation.x = this.pitch;
 
@@ -271,8 +290,8 @@ export class KitchenWorkshopScene {
     this.scene.add(this.sunLight);
 
     [-0.68, 0.68].forEach((px) => {
-      const pLight = new THREE.PointLight(0xffdfb0, 2.2, 7.5, 1.5);
-      pLight.position.set(px, 2.04, 0);
+      const pLight = new THREE.PointLight(0xffdfb0, 2.2, 7.8, 1.45);
+      pLight.position.set(px, 2.22, 0);
       this.scene.add(pLight);
     });
 
@@ -297,6 +316,10 @@ export class KitchenWorkshopScene {
     this.compost = buildCompostStation(this.mats, maxAniso, this.sponsorController);
     this.compost.group.visible = false;
     this.scene.add(this.compost.group);
+
+    this.solar = buildSolarWorkshop(this.mats, maxAniso);
+    this.solar.group.visible = false;
+    this.scene.add(this.solar.group);
   }
 
   private bindEvents(): void {
@@ -368,7 +391,8 @@ export class KitchenWorkshopScene {
     announce: boolean,
     resilience?: GardenResilienceState,
     door3Progress?: Door3ProgressState,
-    builtRacks?: BuiltRackRecord[]
+    builtRacks?: BuiltRackRecord[],
+    solar?: SolarProgressState
   ): void {
     this.stepId = kitchenStep;
     if (resilience) {
@@ -376,6 +400,9 @@ export class KitchenWorkshopScene {
     }
     if (door3Progress) {
       this.door3Progress = door3Progress;
+    }
+    if (solar) {
+      this.solarState = { ...solar };
     }
     this.toolId =
       kitchenStep === 'CUT_AND_ASSEMBLE_PVC'
@@ -404,6 +431,7 @@ export class KitchenWorkshopScene {
       this.resilience.windbreakInstalled,
       this.resilience.stormBraceInstalled
     );
+    this.applySolarStateAndWarnings();
     this.applyWindowAndLightingMood();
     this.switchZone(zone, false);
     this.emitState(true);
@@ -415,12 +443,31 @@ export class KitchenWorkshopScene {
         workshopVoiceover.speakCustom(
           'Welcome back to your Outdoor Garden Yard! Inspect your vertical rack, JoJo rainwater tank, and El Niño forecast station.'
         );
-      } else {
+      } else if (zone === 'compost') {
         workshopVoiceover.speakCustom(
           'Welcome to Door 3: Recycling & Composting Station! Prevention is better than cure—build a 2L drip bottle, compost pile, and mulch shield.'
         );
+      } else {
+        workshopVoiceover.speakSolarStep(this.solarState.step);
       }
     }
+  }
+
+  private applySolarStateAndWarnings(): void {
+    const dustWarning = this.solarState.dustLevel > 0;
+    this.solar.setSolarState(this.solarState, this.resilience.weatherMode);
+    this.garden.setSolarDoorWarning(dustWarning);
+    this.compost.setSolarDoorWarning(dustWarning);
+  }
+
+  public syncSolarProgress(solar: SolarProgressState): void {
+    this.solarState = { ...solar };
+    this.applySolarStateAndWarnings();
+    this.emitState(true);
+  }
+
+  public triggerSolarSprayAnimation(): void {
+    this.solar.startSprayWashAnim();
   }
 
   public updateSponsorSlots(slots: Record<string, SponsorSlotAssignment>): void {
@@ -431,12 +478,16 @@ export class KitchenWorkshopScene {
     rackSize: number,
     tiers: TierSaveState[],
     resilience?: GardenResilienceState,
-    builtRacks?: BuiltRackRecord[]
+    builtRacks?: BuiltRackRecord[],
+    solar?: SolarProgressState
   ): void {
     this.latestRackSize = rackSize;
     this.latestTiers = tiers;
     if (builtRacks !== undefined) {
       this.latestBuiltRacks = builtRacks;
+    }
+    if (solar) {
+      this.solarState = { ...solar };
     }
     this.syncDefaultRackSession();
 
@@ -447,8 +498,13 @@ export class KitchenWorkshopScene {
         resilience.windbreakInstalled,
         resilience.stormBraceInstalled
       );
+      this.applySolarStateAndWarnings();
       this.applyWindowAndLightingMood();
-      if (this.activeZone === 'garden' || this.activeZone === 'compost') {
+      if (
+        this.activeZone === 'garden' ||
+        this.activeZone === 'compost' ||
+        this.activeZone === 'solar'
+      ) {
         this.applyGardenAtmosphere();
       }
     }
@@ -736,27 +792,35 @@ export class KitchenWorkshopScene {
     const isKitchen = zone === 'kitchen';
     const isGarden = zone === 'garden';
     const isCompost = zone === 'compost';
+    const isSolar = zone === 'solar';
 
     this.room.group.visible = isKitchen;
     this.rig.group.visible = isKitchen;
     this.garden.group.visible = isGarden;
     this.compost.group.visible = isCompost;
+    this.solar.group.visible = isSolar;
     this.room.setDoorOpenFactors(0, 0);
-    this.garden.setDoorOpenFactors(0, 0);
-    this.compost.setDoorOpenFactors(0, 0);
+    this.garden.setDoorOpenFactors(0, 0, 0);
+    this.compost.setDoorOpenFactors(0, 0, 0);
+    this.solar.setDoorOpenFactors(0, 0);
 
     if (isKitchen) {
       this.scene.background = new THREE.Color(0x212830);
       this.scene.fog = null;
       this.applyWindowAndLightingMood();
-      this.camera.position.set(0, PLAYER_EYE_Y, 2.2);
+      this.camera.position.set(0, PLAYER_EYE_Y, 3.08);
       this.yaw = 0;
-      this.pitch = -0.15;
+      this.pitch = -0.09;
+    } else if (isSolar) {
+      this.applyGardenAtmosphere();
+      this.camera.position.set(0, PLAYER_EYE_Y, 2.75);
+      this.yaw = 0;
+      this.pitch = -0.10;
     } else {
       this.applyGardenAtmosphere();
-      this.camera.position.set(0, PLAYER_EYE_Y, 2.2);
+      this.camera.position.set(0, PLAYER_EYE_Y, 2.25);
       this.yaw = 0;
-      this.pitch = -0.12;
+      this.pitch = -0.11;
     }
 
     this.camera.rotation.y = this.yaw;
@@ -823,7 +887,11 @@ export class KitchenWorkshopScene {
 
     if (this.activeZone === 'garden') {
       if (this.isManualAimStep()) return;
-      if (this.gardenTarget === 'kitchen_door' || this.gardenTarget === 'compost_door') {
+      if (
+        this.gardenTarget === 'kitchen_door' ||
+        this.gardenTarget === 'compost_door' ||
+        this.gardenTarget === 'solar_door'
+      ) {
         return;
       } else if (this.gardenTarget === 'jojo' || this.gardenTarget === 'weather') {
         this.callbacks.onOpenElNinoHub();
@@ -845,9 +913,34 @@ export class KitchenWorkshopScene {
       return;
     }
 
+    if (this.activeZone === 'solar') {
+      const rect = this.renderer.domElement.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        this.ndcPointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+        this.ndcPointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+        this.raycaster.setFromCamera(this.ndcPointer, this.camera);
+        const hits = this.raycaster.intersectObjects(this.solar.interactableObjects, true);
+        if (hits.length > 0) {
+          const hitTarget = (hits[0].object.userData.solarTarget as SolarTargetKind) ?? null;
+          if (hitTarget && hitTarget !== 'kitchen_door' && hitTarget !== 'garden_door') {
+            this.callbacks.onSolarAction?.(hitTarget);
+            return;
+          }
+        }
+      }
+      if (this.solarTarget && this.solarTarget !== 'kitchen_door' && this.solarTarget !== 'garden_door') {
+        this.callbacks.onSolarAction?.(this.solarTarget);
+      }
+      return;
+    }
+
     if (this.activeZone === 'compost') {
       if (this.isBusy) return;
-      if (this.compostTarget === 'garden_door' || this.compostTarget === 'kitchen_door') {
+      if (
+        this.compostTarget === 'garden_door' ||
+        this.compostTarget === 'kitchen_door' ||
+        this.compostTarget === 'solar_door'
+      ) {
         return;
       }
       const rect = this.renderer.domElement.getBoundingClientRect();
@@ -931,6 +1024,10 @@ export class KitchenWorkshopScene {
       );
       return;
     }
+    if (this.activeZone === 'solar') {
+      workshopVoiceover.speakSolarStep(this.solarState.step);
+      return;
+    }
     workshopVoiceover.speakStep(this.stepId, false);
   }
 
@@ -961,7 +1058,11 @@ export class KitchenWorkshopScene {
     workshopVoiceover.unlockAndSpeakPending();
 
     if (this.activeZone === 'garden') {
-      if (this.gardenTarget === 'kitchen_door' || this.gardenTarget === 'compost_door') {
+      if (
+        this.gardenTarget === 'kitchen_door' ||
+        this.gardenTarget === 'compost_door' ||
+        this.gardenTarget === 'solar_door'
+      ) {
         return;
       } else if (this.gardenTarget === 'jojo' || this.gardenTarget === 'weather') {
         this.callbacks.onOpenElNinoHub();
@@ -979,8 +1080,23 @@ export class KitchenWorkshopScene {
       return;
     }
 
+    if (this.activeZone === 'solar') {
+      if (
+        this.solarTarget &&
+        this.solarTarget !== 'kitchen_door' &&
+        this.solarTarget !== 'garden_door'
+      ) {
+        this.callbacks.onSolarAction?.(this.solarTarget);
+      }
+      return;
+    }
+
     if (this.activeZone === 'compost') {
-      if (this.compostTarget === 'garden_door' || this.compostTarget === 'kitchen_door') {
+      if (
+        this.compostTarget === 'garden_door' ||
+        this.compostTarget === 'kitchen_door' ||
+        this.compostTarget === 'solar_door'
+      ) {
         return;
       }
       if (this.compostTarget === 'drip_bench') {
@@ -1208,6 +1324,9 @@ export class KitchenWorkshopScene {
     if (this.activeZone === 'compost') {
       return this.compostTarget !== null;
     }
+    if (this.activeZone === 'solar') {
+      return this.solarTarget !== null;
+    }
     const zoneId = BUILD_STEPS[this.stepId].targetZone;
     const anchor = this.room.targetZones[zoneId];
     const dx = this.camera.position.x - anchor.position.x;
@@ -1240,7 +1359,13 @@ export class KitchenWorkshopScene {
       this.camera.position.x - this.garden.compostDoorAnchor.x,
       this.camera.position.z - this.garden.compostDoorAnchor.z
     );
-    if (distCompostDoor <= 2.1) {
+    const distSolarDoor = Math.hypot(
+      this.camera.position.x - this.garden.solarDoorAnchor.x,
+      this.camera.position.z - this.garden.solarDoorAnchor.z
+    );
+    if (distSolarDoor <= 2.0) {
+      this.gardenTarget = 'solar_door';
+    } else if (distCompostDoor <= 2.1) {
       this.gardenTarget = 'compost_door';
     } else if (distDoor <= 2.1) {
       this.gardenTarget = 'kitchen_door';
@@ -1280,8 +1405,14 @@ export class KitchenWorkshopScene {
       this.camera.position.x - this.compost.anchors.kitchen_door.x,
       this.camera.position.z - this.compost.anchors.kitchen_door.z
     );
+    const distSolarDoor = Math.hypot(
+      this.camera.position.x - this.compost.anchors.solar_door.x,
+      this.camera.position.z - this.compost.anchors.solar_door.z
+    );
 
-    if (distGardenDoor <= 2.1) {
+    if (distSolarDoor <= 2.0) {
+      this.compostTarget = 'solar_door';
+    } else if (distGardenDoor <= 2.1) {
       this.compostTarget = 'garden_door';
     } else if (distKitchenDoor <= 2.1) {
       this.compostTarget = 'kitchen_door';
@@ -1293,6 +1424,40 @@ export class KitchenWorkshopScene {
       this.compostTarget = 'mulch_bench';
     } else {
       this.compostTarget = null;
+    }
+  }
+
+  private updateSolarProximity(): void {
+    if (this.activeZone !== 'solar') {
+      this.solarTarget = null;
+      return;
+    }
+    const px = this.camera.position.x;
+    const pz = this.camera.position.z;
+    const dBench = Math.hypot(px - this.solar.anchors.workbench.x, pz - this.solar.anchors.workbench.z);
+    const dWiring = Math.hypot(px - this.solar.anchors.wiring_wall.x, pz - this.solar.anchors.wiring_wall.z);
+    const dMount = Math.hypot(px - this.solar.anchors.mount_zone.x, pz - this.solar.anchors.mount_zone.z);
+    const dWash = Math.hypot(px - this.solar.anchors.wash_tool.x, pz - this.solar.anchors.wash_tool.z);
+    const dTel = Math.hypot(px - this.solar.anchors.telemetry.x, pz - this.solar.anchors.telemetry.z);
+    const dKDoor = Math.hypot(px - this.solar.anchors.kitchen_door.x, pz - this.solar.anchors.kitchen_door.z);
+    const dGDoor = Math.hypot(px - this.solar.anchors.garden_door.x, pz - this.solar.anchors.garden_door.z);
+
+    if (dKDoor <= 2.0) {
+      this.solarTarget = 'kitchen_door';
+    } else if (dGDoor <= 2.0) {
+      this.solarTarget = 'garden_door';
+    } else if (dWash <= 1.85) {
+      this.solarTarget = 'wash_tool';
+    } else if (dTel <= 2.05) {
+      this.solarTarget = 'telemetry';
+    } else if (dBench <= 2.45) {
+      this.solarTarget = 'workbench';
+    } else if (dWiring <= 2.55) {
+      this.solarTarget = 'wiring_wall';
+    } else if (dMount <= 2.45) {
+      this.solarTarget = 'mount_zone';
+    } else {
+      this.solarTarget = null;
     }
   }
 
@@ -1457,6 +1622,7 @@ export class KitchenWorkshopScene {
   private getCompostActionLabel(): string {
     if (this.compostTarget === 'garden_door') return 'Walk Through → Door 2 Garden';
     if (this.compostTarget === 'kitchen_door') return 'Walk Through → Door 1 Kitchen';
+    if (this.compostTarget === 'solar_door') return 'Walk Through → Door 4 Solar Lab';
     if (this.compostTarget === 'drip_bench') {
       const s = this.door3Progress.dripStep;
       if (s === 0) return 'Pick 2L Bottle';
@@ -1486,6 +1652,17 @@ export class KitchenWorkshopScene {
     return 'Walk to a Workstation';
   }
 
+  private getSolarActionLabel(): string {
+    if (this.solarTarget === 'kitchen_door') return 'Walk Through → Door 1 Kitchen';
+    if (this.solarTarget === 'garden_door') return 'Walk Through → Door 2 Garden';
+    if (this.solarTarget === 'wash_tool') return 'Wash & Wipe Dust Off Panels';
+    if (this.solarTarget === 'telemetry') return 'Inspect Solar Telemetry Screen';
+    if (this.solarTarget === 'workbench') return 'Assembly Bench (PVC & PV Panel)';
+    if (this.solarTarget === 'wiring_wall') return 'Wiring Wall & Digital Multimeter';
+    if (this.solarTarget === 'mount_zone') return 'Sunlit Solar Mount & Tilt Rig';
+    return 'Build & Aim Your Solar Rig';
+  }
+
   private emitState(force = false): void {
     const inRange = this.checkInRange();
     const reticleAligned = this.alignedTargetIndex !== null && inRange;
@@ -1501,6 +1678,7 @@ export class KitchenWorkshopScene {
       this.completedSubSteps === this.lastCompletedSub &&
       this.gardenTarget === this.lastGardenTarget &&
       this.compostTarget === this.lastCompostTarget &&
+      this.solarTarget === this.lastSolarTarget &&
       rackSessionSig === this.lastRackBuildSig &&
       !progressChanged
     ) {
@@ -1513,6 +1691,7 @@ export class KitchenWorkshopScene {
     this.lastEmittedProgress = this.subProgress;
     this.lastGardenTarget = this.gardenTarget;
     this.lastCompostTarget = this.compostTarget;
+    this.lastSolarTarget = this.solarTarget;
     this.lastRackBuildSig = rackSessionSig;
 
     const stepDef = BUILD_STEPS[this.stepId];
@@ -1534,18 +1713,22 @@ export class KitchenWorkshopScene {
 
     const targetLabel =
       this.activeZone === 'garden'
-        ? this.gardenTarget === 'compost_door'
-          ? 'Walk Through → Door 3 Compost'
-          : this.gardenTarget === 'kitchen_door'
-            ? 'Walk Through → Door 1 Kitchen'
-            : this.gardenTarget === 'jojo'
-              ? 'JoJo Rain Tank'
-              : this.gardenTarget === 'weather'
-                ? 'El Niño Forecast'
-                : gardenRackLabel
+        ? this.gardenTarget === 'solar_door'
+          ? 'Walk Through → Door 4 Solar Lab'
+          : this.gardenTarget === 'compost_door'
+            ? 'Walk Through → Door 3 Compost'
+            : this.gardenTarget === 'kitchen_door'
+              ? 'Walk Through → Door 1 Kitchen'
+              : this.gardenTarget === 'jojo'
+                ? 'JoJo Rain Tank'
+                : this.gardenTarget === 'weather'
+                  ? 'El Niño Forecast'
+                  : gardenRackLabel
         : this.activeZone === 'compost'
           ? this.getCompostActionLabel()
-          : this.room.targetZones[stepDef.targetZone].label;
+          : this.activeZone === 'solar'
+            ? this.getSolarActionLabel()
+            : this.room.targetZones[stepDef.targetZone].label;
 
     const clonedRackSession: RackBuildSessionState | null = this.rackBuildSession
       ? {
@@ -1572,6 +1755,7 @@ export class KitchenWorkshopScene {
       totalSubSteps: this.totalSubSteps,
       gardenTarget: this.gardenTarget,
       compostTarget: this.compostTarget,
+      solarTarget: this.solarTarget,
       rackBuildSession: clonedRackSession,
       rackSubActionLabel: this.rackSubActionLabel,
     });
@@ -1601,7 +1785,9 @@ export class KitchenWorkshopScene {
         ? this.room.colliders
         : this.activeZone === 'garden'
           ? this.garden.colliders
-          : this.compost.colliders;
+          : this.activeZone === 'compost'
+            ? this.compost.colliders
+            : this.solar.colliders;
 
     this.forwardVec.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
     this.rightVec.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
@@ -1643,6 +1829,13 @@ export class KitchenWorkshopScene {
       return { dist, entered };
     };
 
+    const isAtEastSolarThreshold = (doorPos: THREE.Vector3): { dist: number; entered: boolean } => {
+      const dist = Math.hypot(px - doorPos.x, pz - doorPos.z);
+      const entered =
+        dist <= 1.12 || (px >= 3.85 && Math.abs(pz - doorPos.z) <= 0.85);
+      return { dist, entered };
+    };
+
     if (this.activeZone === 'kitchen') {
       const g = isAtThreshold(this.room.doorAnchors.garden);
       const c = isAtThreshold(this.room.doorAnchors.compost);
@@ -1665,12 +1858,17 @@ export class KitchenWorkshopScene {
     if (this.activeZone === 'garden') {
       const k = isAtThreshold(this.garden.kitchenDoorAnchor);
       const c = isAtThreshold(this.garden.compostDoorAnchor);
+      const s = isAtEastSolarThreshold(this.garden.solarDoorAnchor);
       this.garden.setDoorOpenFactors(
         THREE.MathUtils.clamp((2.3 - k.dist) / 1.15, 0, 1),
-        THREE.MathUtils.clamp((2.3 - c.dist) / 1.15, 0, 1)
+        THREE.MathUtils.clamp((2.3 - c.dist) / 1.15, 0, 1),
+        THREE.MathUtils.clamp((2.3 - s.dist) / 1.15, 0, 1)
       );
       if (canWalkThrough) {
-        if (k.entered) {
+        if (s.entered) {
+          workshopAudio.playPickup();
+          this.switchZone('solar', true);
+        } else if (k.entered) {
           workshopAudio.playPickup();
           this.switchZone('kitchen', true);
         } else if (c.entered) {
@@ -1681,14 +1879,38 @@ export class KitchenWorkshopScene {
       return;
     }
 
+    if (this.activeZone === 'solar') {
+      const k = isAtThreshold(this.solar.anchors.kitchen_door);
+      const g = isAtThreshold(this.solar.anchors.garden_door);
+      this.solar.setDoorOpenFactors(
+        THREE.MathUtils.clamp((2.3 - k.dist) / 1.15, 0, 1),
+        THREE.MathUtils.clamp((2.3 - g.dist) / 1.15, 0, 1)
+      );
+      if (canWalkThrough) {
+        if (k.entered) {
+          workshopAudio.playPickup();
+          this.switchZone('kitchen', true);
+        } else if (g.entered) {
+          workshopAudio.playPickup();
+          this.switchZone('garden', true);
+        }
+      }
+      return;
+    }
+
     const g = isAtThreshold(this.compost.anchors.garden_door);
     const k = isAtThreshold(this.compost.anchors.kitchen_door);
+    const s = isAtEastSolarThreshold(this.compost.anchors.solar_door);
     this.compost.setDoorOpenFactors(
       THREE.MathUtils.clamp((2.3 - g.dist) / 1.15, 0, 1),
-      THREE.MathUtils.clamp((2.3 - k.dist) / 1.15, 0, 1)
+      THREE.MathUtils.clamp((2.3 - k.dist) / 1.15, 0, 1),
+      THREE.MathUtils.clamp((2.3 - s.dist) / 1.15, 0, 1)
     );
     if (canWalkThrough) {
-      if (g.entered) {
+      if (s.entered) {
+        workshopAudio.playPickup();
+        this.switchZone('solar', true);
+      } else if (g.entered) {
         workshopAudio.playPickup();
         this.switchZone('garden', true);
       } else if (k.entered) {
@@ -1781,10 +2003,13 @@ export class KitchenWorkshopScene {
       this.updateGardenProximity();
       this.updateManualAimAndTool(dt);
       this.garden.update(dt, this.worldTime, Date.now());
-    } else {
+    } else if (this.activeZone === 'compost') {
       this.updateCompostProximity();
       this.updateManualAimAndTool(dt);
       this.compost.update(dt, this.worldTime);
+    } else {
+      this.updateSolarProximity();
+      this.solar.update(dt, this.worldTime);
     }
 
     // Subtle lightning flash envelope during Rain & Storm
@@ -1821,6 +2046,7 @@ export class KitchenWorkshopScene {
     this.rig.dispose();
     this.garden.dispose();
     this.compost.dispose();
+    this.solar.dispose();
     this.mats.dispose();
     this.envRenderTarget.dispose();
     this.pmremGenerator.dispose();

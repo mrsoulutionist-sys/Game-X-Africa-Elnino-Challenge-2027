@@ -16,6 +16,7 @@ import {
   createPropBrandPlaque,
   type DynamicSponsorController,
 } from './sponsorSignage';
+import { createHorizonBackdrop } from './horizonBackdrop';
 import { createWeatherFxSystem } from './weatherFx';
 
 export type RackBuildStep = 1 | 2 | 3 | 4 | 5;
@@ -58,7 +59,9 @@ export interface GardenYardHandle {
   weatherAnchor: THREE.Vector3;
   kitchenDoorAnchor: THREE.Vector3;
   compostDoorAnchor: THREE.Vector3;
-  setDoorOpenFactors: (kitchenOpen: number, compostOpen: number) => void;
+  solarDoorAnchor: THREE.Vector3;
+  setDoorOpenFactors: (kitchenOpen: number, compostOpen: number, solarOpen?: number) => void;
+  setSolarDoorWarning: (active: boolean) => void;
   setGardenState: (
     rackSize: number,
     tiers: TierSaveState[],
@@ -183,6 +186,10 @@ export function buildGardenYard(
   const weatherFx = createWeatherFxSystem();
   group.add(weatherFx.group);
   disposables.push({ dispose: weatherFx.dispose });
+
+  const horizon = createHorizonBackdrop();
+  group.add(horizon.group);
+  disposables.push({ dispose: horizon.dispose });
 
   // 1. Stone Courtyard Patio + Perimeter Grass Borders
   const patioMat = new THREE.MeshStandardMaterial({
@@ -374,6 +381,81 @@ export function buildGardenYard(
     0xfbbf24,
     mats.leafMat
   );
+
+  // East Fence Walk-Through Portal -> Door 4: Solar & PVC Workshop (x = 4.78, z = 2.25)
+  const solarDoorGroup = new THREE.Group();
+  solarDoorGroup.position.set(4.78, 0, 2.25);
+  solarDoorGroup.rotation.y = -Math.PI * 0.5;
+  group.add(solarDoorGroup);
+
+  const sFrameL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.34, 0.26), mats.cabinetDarkMat);
+  sFrameL.position.set(-0.62, 1.17, 0.04);
+  solarDoorGroup.add(sFrameL);
+  const sFrameR = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.34, 0.26), mats.cabinetDarkMat);
+  sFrameR.position.set(0.62, 1.17, 0.04);
+  solarDoorGroup.add(sFrameR);
+  const sFrameTop = new THREE.Mesh(new THREE.BoxGeometry(1.36, 0.14, 0.26), mats.cabinetDarkMat);
+  sFrameTop.position.set(0, 2.27, 0.04);
+  solarDoorGroup.add(sFrameTop);
+
+  const solarDoorPivot = new THREE.Group();
+  solarDoorPivot.position.set(-0.56, 0, 0);
+  const sDoorPanel = new THREE.Mesh(new THREE.BoxGeometry(1.12, 2.18, 0.08), mats.cabinetMat);
+  sDoorPanel.position.set(0.56, 1.12, 0);
+  solarDoorPivot.add(sDoorPanel);
+  const sDoorGlass = new THREE.Mesh(new THREE.BoxGeometry(0.76, 1.15, 0.09), mats.pvcAcrylicWindowMat);
+  sDoorGlass.position.set(0.56, 1.48, 0);
+  solarDoorPivot.add(sDoorGlass);
+  const sDoorHandle = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.03, 0.08), mats.brassMat);
+  sDoorHandle.position.set(0.98, 1.05, -0.06);
+  solarDoorPivot.add(sDoorHandle);
+  solarDoorGroup.add(solarDoorPivot);
+
+  const sSignTex = createGardenSignTexture('DOOR 4 · SOLAR LAB', 'WALK THROUGH →', '#facc15');
+  disposables.push(sSignTex);
+  const sSignMat = new THREE.MeshBasicMaterial({ map: sSignTex });
+  disposables.push(sSignMat);
+  const sSign = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.38), sSignMat);
+  sSign.position.set(0, 2.6, -0.05);
+  sSign.rotation.y = Math.PI;
+  solarDoorGroup.add(sSign);
+
+  const solarWarningRingMat = new THREE.MeshBasicMaterial({
+    color: 0xf59e0b,
+    transparent: true,
+    opacity: 0.9,
+    side: THREE.DoubleSide,
+  });
+  disposables.push(solarWarningRingMat);
+  const solarBeacon = new THREE.Mesh(new THREE.RingGeometry(0.32, 0.44, 28), solarWarningRingMat);
+  solarBeacon.rotation.x = -Math.PI * 0.5;
+  solarBeacon.position.set(0, 0.04, -0.52);
+  solarDoorGroup.add(solarBeacon);
+
+  const solarPadMat = new THREE.MeshBasicMaterial({
+    color: 0xfacc15,
+    transparent: true,
+    opacity: 0.32,
+    side: THREE.DoubleSide,
+  });
+  disposables.push(solarPadMat);
+  const solarPad = new THREE.Mesh(new THREE.PlaneGeometry(1.16, 0.56), solarPadMat);
+  solarPad.rotation.x = -Math.PI * 0.5;
+  solarPad.position.set(0, 0.035, -0.36);
+  solarDoorGroup.add(solarPad);
+
+  const solarAlertFrameMat = new THREE.MeshBasicMaterial({
+    color: 0xf97316,
+    transparent: true,
+    opacity: 0,
+  });
+  disposables.push(solarAlertFrameMat);
+  const solarAlertFrame = new THREE.Mesh(new THREE.BoxGeometry(1.42, 2.38, 0.06), solarAlertFrameMat);
+  solarAlertFrame.position.set(0, 1.19, -0.06);
+  solarAlertFrame.visible = false;
+  solarDoorGroup.add(solarAlertFrame);
+
+  let solarWarningActive = false;
 
   // 3. Craftable JoJo Rainwater Harvesting Tank Station (x = 2.25, z = -1.75)
   const jojoRoot = new THREE.Group();
@@ -1623,8 +1705,31 @@ export function buildGardenYard(
     const forecast = WEATHER_FORECASTS[activeWeatherMode] ?? WEATHER_FORECASTS.normal;
     const windSpeed = forecast.windSpeedMult * 3.2;
     anemometerGroup.rotation.y = time * windSpeed;
+    weatherDome.rotation.y = time * 0.45;
+    if (jojoInstalledGroup.visible) {
+      gaugeWaterBar.scale.x = 1 + Math.sin(time * 2.6) * 0.05;
+      gaugeWaterBar.scale.z = 1 + Math.cos(time * 2.6) * 0.05;
+    }
+    if (windbreakGroup.visible) {
+      windbreakNetMat.opacity = 0.5 + Math.sin(time * (2.2 + forecast.windSpeedMult)) * 0.06;
+    }
 
     weatherFx.update(dt, time, activeWeatherMode, activeWindbreak, activeStormBrace);
+    horizon.update(time);
+
+    if (solarWarningActive) {
+      const pulse = 0.5 + Math.sin(time * 7.5) * 0.45;
+      solarWarningRingMat.color.setHex(pulse > 0.5 ? 0xef4444 : 0xf59e0b);
+      solarWarningRingMat.opacity = 0.55 + pulse * 0.45;
+      solarAlertFrame.visible = true;
+      solarAlertFrameMat.opacity = 0.14 + pulse * 0.22;
+      solarBeacon.scale.setScalar(1 + pulse * 0.16);
+    } else {
+      solarWarningRingMat.color.setHex(0xfacc15);
+      solarWarningRingMat.opacity = 0.85;
+      solarAlertFrame.visible = false;
+      solarBeacon.scale.setScalar(1);
+    }
 
     const swayDamp =
       (activeWindbreak ? 0.38 : 1.0) * (activeStormBrace ? 0.72 : 1.0);
@@ -1665,6 +1770,11 @@ export function buildGardenYard(
       }
 
       tv.harvestRing.visible = live.harvestReady;
+      if (live.harvestReady) {
+        const hPulse = 1 + Math.sin(time * 4.2 + idx) * 0.08;
+        tv.harvestRing.scale.set(hPulse, hPulse, 1);
+        tv.harvestRing.rotation.z = time * 1.1;
+      }
     });
   };
 
@@ -1678,9 +1788,14 @@ export function buildGardenYard(
     disposables.forEach((d) => d.dispose());
   };
 
-  const setDoorOpenFactors = (kitchenOpen: number, compostOpen: number) => {
+  const setDoorOpenFactors = (kitchenOpen: number, compostOpen: number, solarOpen = 0) => {
     kitchenDoorPivot.rotation.y = THREE.MathUtils.clamp(kitchenOpen, 0, 1) * 1.25;
     compostDoorPivot.rotation.y = THREE.MathUtils.clamp(compostOpen, 0, 1) * 1.25;
+    solarDoorPivot.rotation.y = THREE.MathUtils.clamp(solarOpen, 0, 1) * 1.25;
+  };
+
+  const setSolarDoorWarning = (active: boolean) => {
+    solarWarningActive = active;
   };
 
   return {
@@ -1691,7 +1806,9 @@ export function buildGardenYard(
     weatherAnchor: new THREE.Vector3(-2.25, 0, -1.75),
     kitchenDoorAnchor: new THREE.Vector3(-1.45, 0, 4.15),
     compostDoorAnchor: new THREE.Vector3(1.45, 0, 4.15),
+    solarDoorAnchor: new THREE.Vector3(4.35, 0, 2.25),
     setDoorOpenFactors,
+    setSolarDoorWarning,
     setGardenState,
     getRackRaycastTargets,
     stepRackManualTool,

@@ -12,6 +12,7 @@ import { FarmerLoginOverlay } from './components/FarmerLoginOverlay';
 import { GardenRackPanel } from './components/GardenRackPanel';
 import { LeaderboardModal } from './components/LeaderboardModal';
 import { ParentPortal } from './components/ParentPortal';
+import { SolarWorkshopPanel } from './components/SolarWorkshopPanel';
 import { WickExplainerModal } from './components/WickExplainerModal';
 import { WorkshopHud } from './components/WorkshopHud';
 import {
@@ -74,6 +75,13 @@ import {
   type BuiltRackRecord,
   type RackMaterialId,
 } from './workshop/rackMaterials';
+import {
+  DEFAULT_SOLAR_PROGRESS,
+  computeSolarTelemetry,
+  type SolarProgressState,
+  type SolarWiringMode,
+} from './workshop/solarData';
+import type { SolarTargetKind } from './workshop/solarWorkshopBuilder';
 import { BUILD_STEPS, type BuildStepId, type GradeTier } from './workshop/steps';
 import { workshopVoiceover, type VoiceoverState } from './workshop/voiceover';
 
@@ -93,6 +101,7 @@ const INITIAL_HUD_STATE: WorkshopHudState = {
   totalSubSteps: 0,
   gardenTarget: null,
   compostTarget: null,
+  solarTarget: null,
   rackBuildSession: null,
   rackSubActionLabel: 'Build Rack',
 };
@@ -152,6 +161,8 @@ export function App() {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [bannerVisible, setBannerVisible] = useState(false);
   const [bannerIndex, setBannerIndex] = useState(0);
+  const optimalChimePlayedRef = useRef(false);
+  const solarActionHandlerRef = useRef<(target: SolarTargetKind) => void>(() => {});
 
   useEffect(() => {
     profileRef.current = farmerProfile;
@@ -205,12 +216,14 @@ export function App() {
   }, [farmerProfile?.farmerKey, systemConfig.competitionTimerEnabled]);
 
   const persistProfileUpdate = useCallback((updater: (prev: FarmerProfile) => FarmerProfile) => {
-    setFarmerProfile((prev) => {
-      if (!prev) return prev;
-      const next = updater(prev);
-      profileRef.current = next;
-      void saveFarmerProgress(next);
-      return next;
+    const current = profileRef.current;
+    if (!current) return;
+    const next = updater(current);
+    if (next === current) return;
+    profileRef.current = next;
+    setFarmerProfile(next);
+    void saveFarmerProgress(next).catch((err) => {
+      console.error('Failed to persist farmer progress:', err);
     });
   }, []);
 
@@ -265,6 +278,10 @@ export function App() {
           ...prev,
           activeZone: zone,
         }));
+        if (zone === 'solar') {
+          const stepNum = profileRef.current?.solar.step ?? 1;
+          workshopVoiceover.speakSolarStep(stepNum);
+        }
       },
       onOpenRackManager: () => {
         setNowMs(Date.now());
@@ -384,6 +401,9 @@ export function App() {
           workshopVoiceover.speakCustom(narration);
         }
       },
+      onSolarAction: (target: SolarTargetKind) => {
+        solarActionHandlerRef.current(target);
+      },
     });
     sceneRef.current = scene;
     scene.updateSponsorSlots(sponsorSlotsRef.current);
@@ -413,12 +433,24 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [rackPanelOpen, rackDropdownOpen, hudState.activeZone, hasActiveCrops]);
 
+  const solarTelemetry = useMemo(
+    () =>
+      computeSolarTelemetry(
+        farmerProfile?.solar ?? DEFAULT_SOLAR_PROGRESS,
+        farmerProfile?.weatherMode ?? 'normal'
+      ),
+    [farmerProfile?.solar, farmerProfile?.weatherMode]
+  );
+
   const eligibleBanners = useMemo(() => {
     if (!farmerProfile) return [];
     const activeStages = new Set<BannerStage>(['all', hudState.activeZone]);
     const limit = Math.max(1, systemConfig.compostYieldCycleLimit);
     if (farmerProfile.compostYieldsSinceRefresh >= limit) {
       activeStages.add('compost_needed');
+    }
+    if (farmerProfile.solar.dustLevel > 0) {
+      activeStages.add('solar_maintenance');
     }
     const anyHarvestReady = farmerProfile.tiers.some(
       (t) =>
@@ -428,7 +460,9 @@ export function App() {
           farmerProfile.weatherMode,
           farmerProfile.shadeClothInstalled,
           farmerProfile.windbreakInstalled,
-          farmerProfile.stormBraceInstalled
+          farmerProfile.stormBraceInstalled,
+          systemConfig.maxHarvestHoursCap,
+          solarTelemetry.gardenPumpEfficiencyPct
         ).harvestReady
     );
     if (anyHarvestReady) {
@@ -436,7 +470,9 @@ export function App() {
     }
 
     const stagePriority = (stage: BannerStage): number => {
-      if (stage === 'compost_needed' || stage === 'harvest_ready') return 0;
+      if (stage === 'solar_maintenance' || stage === 'compost_needed' || stage === 'harvest_ready') {
+        return 0;
+      }
       if (stage === hudState.activeZone) return 1;
       return 2;
     };
@@ -449,6 +485,8 @@ export function App() {
     hudState.activeZone,
     systemConfig.banners,
     systemConfig.compostYieldCycleLimit,
+    systemConfig.maxHarvestHoursCap,
+    solarTelemetry.gardenPumpEfficiencyPct,
     nowMs,
   ]);
 
@@ -500,25 +538,32 @@ export function App() {
       workshopVoiceover.unlockAndSpeakPending();
       try {
         const { profile, isReturning } = await loginOrCreateFarmer(farmerName, passcode, meta);
+        const spawnProfile: FarmerProfile =
+          profile.activeZone === 'kitchen' ? profile : { ...profile, activeZone: 'kitchen' };
         setParentProfile(null);
         setAdminProfile(null);
-        profileRef.current = profile;
-        setFarmerProfile(profile);
+        profileRef.current = spawnProfile;
+        setFarmerProfile(spawnProfile);
         setNowMs(Date.now());
-        const announceStep = !isReturning || profile.activeZone !== 'kitchen';
+        if (profile.activeZone !== 'kitchen') {
+          void saveFarmerProgress(spawnProfile).catch((err) => {
+            console.error('Failed to persist Kitchen spawn zone:', err);
+          });
+        }
         sceneRef.current?.applySavedProfile(
-          profile.activeZone,
-          profile.kitchenStep,
-          profile.rackSize,
-          profile.tiers,
-          announceStep,
-          toResilienceState(profile),
-          profile.door3,
-          profile.builtRacks
+          'kitchen',
+          spawnProfile.kitchenStep,
+          spawnProfile.rackSize,
+          spawnProfile.tiers,
+          !isReturning,
+          toResilienceState(spawnProfile),
+          spawnProfile.door3,
+          spawnProfile.builtRacks,
+          spawnProfile.solar
         );
-        if (isReturning && profile.activeZone === 'kitchen') {
+        if (isReturning) {
           workshopVoiceover.speakCustom(
-            `Welcome back, ${profile.farmerName}! Your farm workshop progress is restored.`
+            `Welcome back, ${spawnProfile.farmerName}! You are in the Kitchen Workshop—your farm progress is restored.`
           );
         }
         void syncStudentActiveGrows(profile).catch((err) => {
@@ -633,11 +678,23 @@ export function App() {
       workshopVoiceover.speakCustom(
         'Walk toward South Door 2 (Garden) to step outside and check your Vertical Rack!'
       );
-    } else {
+    } else if (targetZone === 'compost') {
       workshopVoiceover.speakCustom(
         'Walk toward South Door 3 (Compost) to step inside and prepare a fresh compost batch!'
       );
+    } else {
+      workshopVoiceover.speakCustom(
+        'Walk toward East Door 4 (Solar Lab) or tap 4 Solar Lab in the top bar to inspect your solar rig!'
+      );
     }
+  }, []);
+
+  const handleSwitchZone = useCallback((zone: ActiveZone) => {
+    setRackPanelOpen(false);
+    setElNinoHubOpen(false);
+    setCompostModalOpen(false);
+    workshopAudio.playPickup();
+    sceneRef.current?.switchZone(zone, true);
   }, []);
 
   const handleToggleMute = useCallback(() => {
@@ -801,6 +858,7 @@ export function App() {
       const prevSnapshot = profileRef.current;
       const harvestedCrop = getCropById(prevSnapshot?.tiers[tierIndex]?.cropId ?? null);
       const limit = Math.max(1, systemConfigRef.current.compostYieldCycleLimit);
+      const solarDustLimit = Math.max(1, systemConfigRef.current.solarDustYieldTriggerLimit);
       const compEnabled = systemConfigRef.current.competitionTimerEnabled;
       const startMs = competitionStartRef.current;
       const elapsed = compEnabled && startMs !== null ? Math.max(500, now - startMs) : null;
@@ -819,11 +877,19 @@ export function App() {
               }
             : t
         );
+        const nextSolarYields = Math.min(50, prev.solar.yieldsSinceClean + 1);
+        const shouldTriggerDust = prev.solar.step >= 3 && nextSolarYields >= solarDustLimit;
+        const nextSolar: SolarProgressState = {
+          ...prev.solar,
+          yieldsSinceClean: nextSolarYields,
+          dustLevel: shouldTriggerDust ? 100 : prev.solar.dustLevel,
+        };
         sceneRef.current?.syncGardenTiers(
           prev.rackSize,
           nextTiers,
           toResilienceState(prev),
-          prev.builtRacks
+          prev.builtRacks,
+          nextSolar
         );
         const nextBest =
           elapsed !== null
@@ -838,6 +904,7 @@ export function App() {
           compostYieldsSinceRefresh: Math.min(50, prev.compostYieldsSinceRefresh + 1),
           bestCompetitionMs: nextBest,
           tiers: nextTiers,
+          solar: nextSolar,
         };
       });
       if (prevSnapshot) {
@@ -870,7 +937,15 @@ export function App() {
       }
 
       const nextYieldCount = (prevSnapshot?.compostYieldsSinceRefresh ?? 0) + 1;
-      if (nextYieldCount >= limit) {
+      const nextSolarYieldCount = (prevSnapshot?.solar.yieldsSinceClean ?? 0) + 1;
+      const triggeredSolarDust =
+        Boolean(prevSnapshot && prevSnapshot.solar.step >= 3) &&
+        nextSolarYieldCount >= solarDustLimit;
+      if (triggeredSolarDust) {
+        workshopVoiceover.speakCustom(
+          'Solar efficiency dropping—check your power system! Dust built up on your Room 4 solar panels. Head to Door 4 Solar Lab to spray and wipe them clean!'
+        );
+      } else if (nextYieldCount >= limit) {
         workshopVoiceover.speakCustom(
           `Great harvest! After ${limit} yield${limit === 1 ? '' : 's'}, your rack compost needs refreshing—head to Door 3 Compost to bring a fresh compost batch in before planting again!`
         );
@@ -1143,6 +1218,188 @@ export function App() {
     );
   }, [persistProfileUpdate]);
 
+  const handleSnapSolarFramePart = useCallback(
+    (partIndex: number) => {
+      workshopAudio.playSnapComplete();
+      persistProfileUpdate((prev) => {
+        if (prev.solar.step !== 1 || prev.solar.framePartsDone !== partIndex) return prev;
+        const nextParts = Math.min(4, prev.solar.framePartsDone + 1);
+        const nextSolar: SolarProgressState = {
+          ...prev.solar,
+          framePartsDone: nextParts,
+          step: nextParts >= 4 ? 2 : 1,
+        };
+        sceneRef.current?.syncSolarProgress(nextSolar);
+        if (nextParts >= 4) {
+          workshopVoiceover.speakCustom(
+            'PVC mounting stand complete! Notice the cooling air gap underneath—this stops El Niño heatwaves from overheating your solar cells. Now assemble the Solar Panel!',
+            { hideText: true }
+          );
+        }
+        return { ...prev, solar: nextSolar };
+      });
+    },
+    [persistProfileUpdate]
+  );
+
+  const handleSnapSolarPanelPart = useCallback(
+    (partIndex: number) => {
+      workshopAudio.playSnapComplete();
+      persistProfileUpdate((prev) => {
+        if (prev.solar.step !== 2 || prev.solar.panelPartsDone !== partIndex) return prev;
+        const nextParts = Math.min(3, prev.solar.panelPartsDone + 1);
+        const nextSolar: SolarProgressState = {
+          ...prev.solar,
+          panelPartsDone: nextParts,
+          step: nextParts >= 3 ? 3 : 2,
+        };
+        sceneRef.current?.syncSolarProgress(nextSolar);
+        if (nextParts >= 3) {
+          workshopVoiceover.speakCustom(
+            'Solar panel assembled and mounted! Next, test Series versus Parallel wiring on the Digital Multimeter and connect all 4 energy cables.',
+            { hideText: true }
+          );
+        }
+        return { ...prev, solar: nextSolar };
+      });
+    },
+    [persistProfileUpdate]
+  );
+
+  const handleSetSolarWiringMode = useCallback(
+    (mode: SolarWiringMode) => {
+      workshopAudio.playPickup();
+      persistProfileUpdate((prev) => {
+        const nextSolar: SolarProgressState = { ...prev.solar, wiringMode: mode };
+        sceneRef.current?.syncSolarProgress(nextSolar);
+        return { ...prev, solar: nextSolar };
+      });
+      workshopVoiceover.speakCustom(
+        mode === 'series'
+          ? 'Series wiring active! Notice the multimeter boosted voltage to twenty-four volts—great for starting heavy Garden irrigation pumps.'
+          : 'Parallel wiring active! Notice the multimeter boosted amperage to eight point five amps—ideal for charging your Battery Bank faster.',
+        { hideText: true }
+      );
+    },
+    [persistProfileUpdate]
+  );
+
+  const handleAdvanceSolarWiring = useCallback(
+    (stageIndex: number) => {
+      workshopAudio.playSnapComplete();
+      persistProfileUpdate((prev) => {
+        if (prev.solar.step !== 3 || prev.solar.wiredStage !== stageIndex) return prev;
+        const nextStage = Math.min(4, prev.solar.wiredStage + 1);
+        const nextSolar: SolarProgressState = {
+          ...prev.solar,
+          wiredStage: nextStage,
+          step: nextStage >= 4 ? 4 : 3,
+        };
+        sceneRef.current?.syncSolarProgress(nextSolar);
+        if (nextStage >= 4) {
+          workshopAudio.playPourAndBloom();
+          workshopVoiceover.speakCustom(
+            'Circuit energized! Watch the glowing yellow, blue, and green pulses power your school facilities. Now tilt and rotate your panel until you reach 90% Optimal Solar Capture!',
+            { hideText: true }
+          );
+        }
+        return { ...prev, solar: nextSolar };
+      });
+    },
+    [persistProfileUpdate]
+  );
+
+  const handleSetSolarAngles = useCallback(
+    (tiltDeg: number, azimuthDeg: number) => {
+      persistProfileUpdate((prev) => {
+        const clampedTilt = Math.max(0, Math.min(75, Math.round(tiltDeg)));
+        const clampedAz = Math.max(-90, Math.min(90, Math.round(azimuthDeg)));
+        const draftSolar: SolarProgressState = {
+          ...prev.solar,
+          tiltDeg: clampedTilt,
+          azimuthDeg: clampedAz,
+        };
+        const tel = computeSolarTelemetry(draftSolar, prev.weatherMode);
+        if (tel.isOptimalCapture && !optimalChimePlayedRef.current) {
+          optimalChimePlayedRef.current = true;
+          workshopAudio.playPourAndBloom();
+          if (prev.solar.step === 4) {
+            workshopVoiceover.speakCustom(
+              'Optimal Solar Capture achieved! Your solar workshop is now running at full power for the Kitchen, Garden pumps, and Compost Lab.',
+              { hideText: true }
+            );
+          }
+        } else if (!tel.isOptimalCapture) {
+          optimalChimePlayedRef.current = false;
+        }
+        const nextSolar: SolarProgressState = {
+          ...draftSolar,
+          step:
+            prev.solar.step === 4 && tel.sunAlignmentPct >= 90 && prev.solar.dustLevel === 0
+              ? 5
+              : prev.solar.step,
+        };
+        sceneRef.current?.syncSolarProgress(nextSolar);
+        return { ...prev, solar: nextSolar };
+      });
+    },
+    [persistProfileUpdate]
+  );
+
+  const handleWashSolarPanels = useCallback(() => {
+    workshopAudio.playMistSpray();
+    sceneRef.current?.triggerSolarSprayAnimation();
+    persistProfileUpdate((prev) => {
+      const nextSolar: SolarProgressState = {
+        ...prev.solar,
+        dustLevel: 0,
+        yieldsSinceClean: 0,
+        cleanCount: prev.solar.cleanCount + 1,
+      };
+      sceneRef.current?.syncSolarProgress(nextSolar);
+      return { ...prev, solar: nextSolar };
+    });
+    workshopVoiceover.speakCustom(
+      'Panels washed and wiped crystal clear! Dust removed—check your Sun Alignment meter above 90% to keep Garden irrigation at 100% power.',
+      { hideText: true }
+    );
+  }, [persistProfileUpdate]);
+
+  useEffect(() => {
+    solarActionHandlerRef.current = (target: SolarTargetKind) => {
+      const snap = profileRef.current;
+      if (!snap || !target) return;
+      if (target === 'wash_tool') {
+        handleWashSolarPanels();
+        return;
+      }
+      if (target === 'workbench') {
+        if (snap.solar.step === 1) {
+          handleSnapSolarFramePart(snap.solar.framePartsDone);
+        } else if (snap.solar.step === 2) {
+          handleSnapSolarPanelPart(snap.solar.panelPartsDone);
+        }
+        return;
+      }
+      if (target === 'wiring_wall' && snap.solar.step === 3) {
+        handleAdvanceSolarWiring(snap.solar.wiredStage);
+        return;
+      }
+      if (target === 'telemetry' || target === 'mount_zone') {
+        const tel = computeSolarTelemetry(snap.solar, snap.weatherMode);
+        workshopVoiceover.speakCustom(
+          `Solar Telemetry: ${tel.watts} Watts output, ${tel.sunAlignmentPct}% sun alignment, Battery Health ${tel.batteryHealthPct}%, and Garden Pump Power ${tel.gardenPumpEfficiencyPct}%.`,
+          { hideText: true }
+        );
+      }
+    };
+  }, [
+    handleWashSolarPanels,
+    handleSnapSolarFramePart,
+    handleSnapSolarPanelPart,
+    handleAdvanceSolarWiring,
+  ]);
+
   const handleBuildAnotherPipe = useCallback(() => {
     handleGuideToDoor('kitchen');
   }, [handleGuideToDoor]);
@@ -1152,28 +1409,38 @@ export function App() {
   const hasReadyPipe = farmerProfile?.kitchenStep === 'COMPLETE' || hudState.stepId === 'COMPLETE';
   const isDoorTarget =
     (hudState.activeZone === 'garden' &&
-      (hudState.gardenTarget === 'kitchen_door' || hudState.gardenTarget === 'compost_door')) ||
+      (hudState.gardenTarget === 'kitchen_door' ||
+        hudState.gardenTarget === 'compost_door' ||
+        hudState.gardenTarget === 'solar_door')) ||
     (hudState.activeZone === 'compost' &&
-      (hudState.compostTarget === 'garden_door' || hudState.compostTarget === 'kitchen_door'));
+      (hudState.compostTarget === 'garden_door' ||
+        hudState.compostTarget === 'kitchen_door' ||
+        hudState.compostTarget === 'solar_door')) ||
+    (hudState.activeZone === 'solar' &&
+      (hudState.solarTarget === 'kitchen_door' || hudState.solarTarget === 'garden_door'));
 
   const dualActionLabel =
     hudState.activeZone === 'garden'
-      ? hudState.gardenTarget === 'compost_door'
-        ? 'Walk Through → Door 3 Compost'
-        : hudState.gardenTarget === 'kitchen_door'
-          ? 'Walk Through → Door 1 Kitchen'
-          : hudState.gardenTarget === 'jojo'
-            ? 'JoJo Rain Tank'
-            : hudState.gardenTarget === 'weather'
-              ? 'El Niño Forecast'
-              : hudState.targetLabel
-      : hudState.activeZone === 'compost'
+      ? hudState.gardenTarget === 'solar_door'
+        ? 'Walk Through → Door 4 Solar Lab'
+        : hudState.gardenTarget === 'compost_door'
+          ? 'Walk Through → Door 3 Compost'
+          : hudState.gardenTarget === 'kitchen_door'
+            ? 'Walk Through → Door 1 Kitchen'
+            : hudState.gardenTarget === 'jojo'
+              ? 'JoJo Rain Tank'
+              : hudState.gardenTarget === 'weather'
+                ? 'El Niño Forecast'
+                : hudState.targetLabel
+      : hudState.activeZone === 'compost' || hudState.activeZone === 'solar'
         ? hudState.targetLabel
         : currentStep.actionLabel;
 
   const dualTargetLabel =
     hudState.activeZone === 'garden'
-      ? hudState.gardenTarget === 'compost_door' || hudState.gardenTarget === 'kitchen_door'
+      ? hudState.gardenTarget === 'compost_door' ||
+        hudState.gardenTarget === 'kitchen_door' ||
+        hudState.gardenTarget === 'solar_door'
         ? dualActionLabel
         : hudState.rackBuildSession && hudState.rackBuildSession.activeRackIndex !== null
           ? hudState.targetLabel
@@ -1225,6 +1492,9 @@ export function App() {
             door3={farmerProfile.door3}
             compostYieldsSinceRefresh={farmerProfile.compostYieldsSinceRefresh}
             compostYieldCycleLimit={systemConfig.compostYieldCycleLimit}
+            solar={farmerProfile.solar}
+            solarPumpEfficiencyPct={solarTelemetry.gardenPumpEfficiencyPct}
+            maxHarvestHoursCap={systemConfig.maxHarvestHoursCap}
             competitionTimerEnabled={systemConfig.competitionTimerEnabled}
             competitionElapsedMs={competitionElapsedMs}
             bestCompetitionMs={farmerProfile.bestCompetitionMs ?? null}
@@ -1240,6 +1510,7 @@ export function App() {
             }}
             onToggleCompostDropdown={() => setCompostDropdownOpen((v) => !v)}
             onSelectGrade={handleSelectGrade}
+            onSwitchZone={handleSwitchZone}
             onReplayVoiceover={handleReplayVoiceover}
             onToggleMute={handleToggleMute}
             onToggleCutaway={handleToggleCutaway}
@@ -1264,6 +1535,22 @@ export function App() {
             onToggleLeaderboard={() => setLeaderboardOpen((v) => !v)}
             onLogout={handleLogout}
           />
+
+          {/* Room 4: Solar & PVC Workshop Interactive Controls (Vocal-Only Coaching) */}
+          {hudState.activeZone === 'solar' && (
+            <SolarWorkshopPanel
+              solar={farmerProfile.solar}
+              weatherMode={farmerProfile.weatherMode}
+              solarTarget={hudState.solarTarget}
+              onSnapFramePart={handleSnapSolarFramePart}
+              onSnapPanelPart={handleSnapSolarPanelPart}
+              onSetWiringMode={handleSetSolarWiringMode}
+              onAdvanceWiringStage={handleAdvanceSolarWiring}
+              onSetAngles={handleSetSolarAngles}
+              onWashPanels={handleWashSolarPanels}
+              onSpeakGuide={() => workshopVoiceover.speakSolarStep(farmerProfile.solar.step)}
+            />
+          )}
 
           {/* Compact Non-Blocking Quick-Pick Bar for Door 3 3D Selection Steps */}
           {hudState.activeZone === 'compost' && !hudState.isBusy && (
@@ -1548,6 +1835,9 @@ export function App() {
           compostYieldsSinceRefresh={farmerProfile.compostYieldsSinceRefresh}
           compostYieldCycleLimit={systemConfig.compostYieldCycleLimit}
           compostCycleCount={farmerProfile.compostCycleCount}
+          maxHarvestHoursCap={systemConfig.maxHarvestHoursCap}
+          solarPumpEfficiencyPct={solarTelemetry.gardenPumpEfficiencyPct}
+          solarDustWarning={farmerProfile.solar.dustLevel > 0}
           nowMs={nowMs}
           onClose={() => setRackPanelOpen(false)}
           onChangeRackSize={handleChangeRackSize}
@@ -1625,9 +1915,10 @@ export function App() {
         />
       )}
 
-      {/* Pop-Up Animated Einstein Mentor (Appears Only During Narration) */}
+      {/* Pop-Up Animated Einstein Mentor (Wordless in Solar Room) */}
       <EinsteinNarrator
         voiceover={voiceover}
+        isSolarRoom={Boolean(farmerProfile && hudState.activeZone === 'solar')}
         onDismiss={handleDismissNarrator}
       />
     </div>

@@ -406,16 +406,168 @@ export function buildKitchenWorkshopRoom(
     0xfcd34d
   );
 
-  // 2. Daylight Kitchen Window behind Sink (x = -1.9, z = -4.38)
+  // 2. Daylight Kitchen Window behind Sink (x = -1.9, z = -4.38) + Sunlit Potted Herbs Sill
   addBox(group, 1.65, 1.32, 0.06, -1.9, 1.95, -4.38, mats.cabinetDarkMat, false, false);
   const windowPane = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.16), mats.windowGlowMat);
   windowPane.position.set(-1.9, 1.95, -4.345);
   group.add(windowPane);
-  // Window mullions
+  // Window mullions & warm timber window sill
   addBox(group, 0.035, 1.18, 0.02, -1.9, 1.95, -4.335, mats.wallMat, false, false);
   addBox(group, 1.52, 0.035, 0.02, -1.9, 1.95, -4.335, mats.wallMat, false, false);
+  addBox(group, 1.72, 0.038, 0.16, -1.9, 1.3, -4.29, mats.butcherBlockMat, false, true);
 
-  // 3. Tiled Subway Backsplash Panels
+  // Homely South African Props (Non-blocking background touches)
+  const terracottaMat = new THREE.MeshStandardMaterial({ color: 0xc26541, roughness: 0.78 });
+  const kettleEnamelMat = new THREE.MeshStandardMaterial({ color: 0xc94a38, roughness: 0.28, metalness: 0.25 });
+  const wovenReedMat = new THREE.MeshStandardMaterial({ color: 0xc59a5b, roughness: 0.88 });
+  const towelStripeMat = new THREE.MeshStandardMaterial({ color: 0xd97736, roughness: 0.86 });
+  const towelCreamMat = new THREE.MeshStandardMaterial({ color: 0xf9eedb, roughness: 0.88 });
+  const sunWashMat = new THREE.MeshBasicMaterial({
+    color: 0xfff4e0,
+    transparent: true,
+    opacity: 0.11,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  disposableExtras.push(terracottaMat, kettleEnamelMat, wovenReedMat, towelStripeMat, towelCreamMat, sunWashMat);
+
+  // 3 terracotta potted herbs on the sunlit window sill (animated herb sprigs)
+  const herbSprigs: THREE.Mesh[] = [];
+  [-2.38, -1.9, -1.42].forEach((hx, hIdx) => {
+    const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.04, 0.088, 12), terracottaMat);
+    pot.position.set(hx, 1.363, -4.28);
+    pot.castShadow = true;
+    group.add(pot);
+    const soil = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.048, 0.01, 10), mats.substrateWetMat);
+    soil.position.set(hx, 1.404, -4.28);
+    group.add(soil);
+    for (let s = 0; s < 5; s++) {
+      const ang = (s / 5) * Math.PI * 2 + hIdx;
+      const sprig = new THREE.Mesh(
+        new THREE.ConeGeometry(0.022, 0.085, 6),
+        s % 2 === 0 ? mats.leafMat : mats.leafLightMat
+      );
+      sprig.position.set(hx + Math.cos(ang) * 0.022, 1.445, -4.28 + Math.sin(ang) * 0.022);
+      sprig.rotation.z = Math.cos(ang) * 0.28;
+      sprig.rotation.x = Math.sin(ang) * 0.28;
+      sprig.userData.baseRotZ = sprig.rotation.z;
+      group.add(sprig);
+      herbSprigs.push(sprig);
+    }
+  });
+
+  // Soft golden #FFF4E0 sunlight rays streaming diagonally across the room
+  const sunBeam = new THREE.Mesh(new THREE.PlaneGeometry(1.75, 4.2), sunWashMat);
+  sunBeam.position.set(-1.55, 1.15, -2.45);
+  sunBeam.rotation.x = -0.68;
+  sunBeam.rotation.y = 0.14;
+  sunBeam.raycast = () => {};
+  group.add(sunBeam);
+
+  const sunFloorPatch = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 2.5), sunWashMat);
+  sunFloorPatch.rotation.x = -Math.PI * 0.5;
+  sunFloorPatch.position.set(-1.5, 0.008, -1.9);
+  sunFloorPatch.raycast = () => {};
+  group.add(sunFloorPatch);
+
+  // Enamel whistling kettle & 2 ceramic mugs on North-West counter corner (well clear of saw/sink)
+  const kettleGroup = new THREE.Group();
+  kettleGroup.position.set(-3.12, 0.905, -3.96);
+  const kettleBody = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.105, 0.14, 16), kettleEnamelMat);
+  kettleBody.position.y = 0.07;
+  kettleBody.castShadow = true;
+  kettleGroup.add(kettleBody);
+  const kettleLid = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.08, 0.028, 14), mats.chromeMat);
+  kettleLid.position.y = 0.154;
+  kettleGroup.add(kettleLid);
+  const kettleHandle = new THREE.Mesh(new THREE.TorusGeometry(0.082, 0.011, 8, 14, Math.PI), mats.darkMetalMat);
+  kettleHandle.position.y = 0.15;
+  kettleGroup.add(kettleHandle);
+  const kettleSpout = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.022, 0.09, 10), kettleEnamelMat);
+  kettleSpout.position.set(0.098, 0.11, 0);
+  kettleSpout.rotation.z = -0.75;
+  kettleGroup.add(kettleSpout);
+  const kettleSteamMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.36,
+    depthWrite: false,
+  });
+  disposableExtras.push(kettleSteamMat);
+  const kettleSteamWisps: THREE.Mesh[] = [];
+  for (let i = 0; i < 4; i++) {
+    const wisp = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 8), kettleSteamMat);
+    wisp.position.set(0.13, 0.16 + i * 0.05, 0);
+    kettleGroup.add(wisp);
+    kettleSteamWisps.push(wisp);
+  }
+  group.add(kettleGroup);
+
+  [-2.82, -2.68].forEach((mx, mIdx) => {
+    const mug = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.036, 0.032, 0.082, 12),
+      mIdx === 0 ? towelCreamMat : terracottaMat
+    );
+    mug.position.set(mx, 0.946, -4.08 + mIdx * 0.09);
+    mug.castShadow = true;
+    group.add(mug);
+  });
+
+  // Brass wall utensil rail & hanging wooden kitchen tools above North-West counter
+  const utensilRail = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.72, 10), mats.brassMat);
+  utensilRail.rotation.z = Math.PI * 0.5;
+  utensilRail.position.set(-3.45, 1.56, -4.33);
+  group.add(utensilRail);
+  const hangingUtensils: THREE.Group[] = [];
+  [-3.68, -3.46, -3.24].forEach((ux, uIdx) => {
+    const uPivot = new THREE.Group();
+    uPivot.position.set(ux, 1.55, -4.32);
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.22, 6), mats.butcherBlockMat);
+    stem.position.set(0, -0.11, 0);
+    uPivot.add(stem);
+    const head =
+      uIdx === 1
+        ? new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.072, 0.008), mats.butcherBlockMat)
+        : new THREE.Mesh(new THREE.SphereGeometry(0.028, 8, 8), uIdx === 0 ? mats.butcherBlockMat : mats.stainlessMat);
+    head.scale.y = uIdx === 1 ? 1 : 1.35;
+    head.position.set(0, -0.24, 0);
+    uPivot.add(head);
+    group.add(uPivot);
+    hangingUtensils.push(uPivot);
+  });
+
+  // Striped South African dish towel hanging on West counter apron (non-blocking)
+  const towelBar = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.42, 8), mats.brassMat);
+  towelBar.rotation.x = Math.PI * 0.5;
+  towelBar.position.set(-3.55, 0.74, 1.95);
+  group.add(towelBar);
+  const dishTowelGroup = new THREE.Group();
+  dishTowelGroup.position.set(-3.55, 0.73, 1.95);
+  addBox(dishTowelGroup, 0.022, 0.34, 0.28, 0, -0.17, 0, towelCreamMat, false, true);
+  addBox(dishTowelGroup, 0.025, 0.055, 0.28, 0, -0.25, 0, towelStripeMat, false, false);
+  addBox(dishTowelGroup, 0.025, 0.035, 0.28, 0, -0.12, 0, towelStripeMat, false, false);
+  group.add(dishTowelGroup);
+
+  // Woven reed baskets tucked cleanly on open shelves & non-blocking SW corner
+  const addWovenBasket = (bx: number, by: number, bz: number, rTop: number, rBot: number, h: number) => {
+    const bGroup = new THREE.Group();
+    bGroup.position.set(bx, by, bz);
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, h, 14), wovenReedMat);
+    body.position.y = h * 0.5;
+    body.castShadow = true;
+    bGroup.add(body);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(rTop, 0.014, 6, 16), terracottaMat);
+    rim.rotation.x = Math.PI * 0.5;
+    rim.position.y = h;
+    bGroup.add(rim);
+    group.add(bGroup);
+  };
+  addWovenBasket(-4.32, 1.74, -1.45, 0.13, 0.1, 0.15);
+  addWovenBasket(-4.32, 1.74, 0.55, 0.14, 0.11, 0.17);
+  addWovenBasket(4.32, 1.74, -0.55, 0.13, 0.1, 0.15);
+  addWovenBasket(-4.12, 0.0, 3.65, 0.22, 0.17, 0.32);
+
+  // 3. Tiled Ceramic Patterned Backsplash Panels
   // North backsplash left & right of window + below window
   addBox(group, 1.85, 1.18, 0.025, -3.58, 1.49, -4.38, mats.tileMat, false, true);
   addBox(group, 3.6, 1.18, 0.025, 0.72, 1.49, -4.38, mats.tileMat, false, true);
@@ -483,7 +635,7 @@ export function buildKitchenWorkshopRoom(
   gooseneck.castShadow = true;
   sinkGroup.add(gooseneck);
 
-  // Animated tap water stream
+  // Animated tap water stream & ambient sink drip
   const sinkWaterStream = new THREE.Mesh(
     new THREE.CylinderGeometry(0.009, 0.014, 0.43, 12),
     mats.waterStreamMat
@@ -491,6 +643,13 @@ export function buildKitchenWorkshopRoom(
   sinkWaterStream.position.set(0, 0.055, -0.04);
   sinkWaterStream.visible = false;
   sinkGroup.add(sinkWaterStream);
+
+  const faucetDrip = new THREE.Mesh(
+    new THREE.SphereGeometry(0.008, 8, 8),
+    mats.waterStreamMat
+  );
+  faucetDrip.position.set(0, 0.25, -0.04);
+  sinkGroup.add(faucetDrip);
 
   tagTargetZone(sinkGroup, 'sink');
   interactableObjects.push(sinkGroup);
@@ -641,35 +800,37 @@ export function buildKitchenWorkshopRoom(
   group.add(island);
   colliders.push({ minX: -1.45, maxX: 1.45, minZ: -0.72, maxZ: 0.72 });
 
-  // 10. Two Hanging Pendant Lights over Central Island
+  // 10. Two Hanging Pendant Lights over Central Island (raised for clear sightlines + gentle sway)
+  const pendants: THREE.Group[] = [];
   [-0.68, 0.68].forEach((px) => {
     const pendant = new THREE.Group();
-    pendant.position.set(px, 0, 0);
-    // Suspension rod from ceiling y=3.35 down to 2.24
-    const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 1.11, 8), mats.darkMetalMat);
-    rod.position.y = 2.795;
+    pendant.position.set(px, 3.35, 0);
+    // Suspension rod from ceiling y=3.35 down to 2.42
+    const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.93, 8), mats.darkMetalMat);
+    rod.position.y = -0.465;
     pendant.add(rod);
     // Canopy at ceiling
     const canopy = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.025, 14), mats.darkMetalMat);
-    canopy.position.y = 3.338;
+    canopy.position.y = -0.012;
     pendant.add(canopy);
     // Brass socket collar
     const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.038, 0.055, 12), mats.brassMat);
-    collar.position.y = 2.24;
+    collar.position.y = -0.93;
     pendant.add(collar);
     // Matte dome shade
     const shade = new THREE.Mesh(
-      new THREE.ConeGeometry(0.21, 0.17, 20, 1, true),
+      new THREE.ConeGeometry(0.2, 0.16, 20, 1, true),
       mats.darkMetalMat
     );
-    shade.position.y = 2.15;
+    shade.position.y = -1.01;
     shade.castShadow = true;
     pendant.add(shade);
     // Warm bulb inside
-    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.038, 12, 10), mats.pendantGlowMat);
-    bulb.position.y = 2.11;
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.036, 12, 10), mats.pendantGlowMat);
+    bulb.position.y = -1.05;
     pendant.add(bulb);
     group.add(pendant);
+    pendants.push(pendant);
   });
 
   // 11. Interactive Tool & Supply Stations on Perimeter Counters
@@ -861,9 +1022,49 @@ export function buildKitchenWorkshopRoom(
       anchor.beaconArrow.position.y = 0.34 + Math.sin(time * 3.5) * 0.045;
       anchor.beaconArrow.rotation.y = time * 1.8;
     }
+
+    // Active tool prop gentle hover attention cue
+    sawProp.position.y =
+      0.905 + (currentActiveZone === 'saw_station' && sawProp.visible ? 0.028 + Math.sin(time * 3.1) * 0.018 : 0);
+    drillProp.position.y =
+      0.905 + (currentActiveZone === 'drill_station' && drillProp.visible ? 0.028 + Math.sin(time * 3.1) * 0.018 : 0);
+    wicksProp.position.y =
+      0.905 + (currentActiveZone === 'wick_station' && wicksProp.visible ? 0.028 + Math.sin(time * 3.1) * 0.018 : 0);
+
+    // Gentle window-sill herbs & warm sunlit beam shimmer
+    herbSprigs.forEach((sp, idx) => {
+      const baseZ = (sp.userData.baseRotZ as number) || 0;
+      sp.rotation.z = baseZ + Math.sin(time * 1.65 + idx * 0.6) * 0.065;
+    });
+    sunWashMat.opacity = 0.095 + Math.sin(time * 0.9) * 0.02;
+
+    // Whistling kettle rising steam wisps
+    kettleSteamWisps.forEach((w, idx) => {
+      const p = (time * 0.55 + idx * 0.25) % 1;
+      w.position.set(0.13 + Math.sin(time * 2.4 + idx) * 0.014, 0.155 + p * 0.24, Math.cos(time * 1.9 + idx) * 0.01);
+      const s = 0.6 + p * 0.95;
+      w.scale.set(s, s, s);
+    });
+
+    // Subtle pendant light & hanging kitchen prop micro-sway
+    pendants.forEach((p, idx) => {
+      p.rotation.z = Math.sin(time * 1.15 + idx * 1.3) * 0.014;
+    });
+    hangingUtensils.forEach((u, idx) => {
+      u.rotation.z = Math.sin(time * 1.4 + idx * 0.9) * 0.032;
+    });
+    dishTowelGroup.rotation.z = Math.sin(time * 1.3) * 0.025;
+
+    // Sink faucet stream or ambient droplet
     if (isFillingSink) {
+      faucetDrip.visible = false;
       const shimmer = 0.85 + Math.sin(time * 28) * 0.12;
       sinkWaterStream.scale.set(shimmer, 1, shimmer);
+    } else {
+      const dripPhase = (time * 0.85) % 1;
+      faucetDrip.visible = dripPhase < 0.55;
+      const fall = Math.min(1, dripPhase / 0.55);
+      faucetDrip.position.y = 0.25 - fall * fall * 0.41;
     }
   };
 

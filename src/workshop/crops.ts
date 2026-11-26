@@ -338,7 +338,9 @@ export function computeTierLiveMetrics(
   weatherMode: WeatherMode = 'normal',
   shadeClothInstalled = false,
   windbreakInstalled = false,
-  stormBraceInstalled = false
+  stormBraceInstalled = false,
+  maxHarvestHoursCap = 24,
+  solarPumpEfficiencyPct = 100
 ): TierLiveMetrics {
   if (!tier.pipeInstalled) {
     return {
@@ -368,7 +370,8 @@ export function computeTierLiveMetrics(
     mitigation *= 0.85;
   }
   const evapMult = forecast.evapMultiplier * mitigation;
-  const effectiveWaterMs = (baseWaterDuration / evapMult) * 3600000;
+  const solarFactor = Math.max(0.55, Math.min(1.06, solarPumpEfficiencyPct / 100));
+  const effectiveWaterMs = ((baseWaterDuration * solarFactor) / evapMult) * 3600000;
 
   let waterPctExact = 0;
   let waterRemainingMs = 0;
@@ -401,6 +404,8 @@ export function computeTierLiveMetrics(
     };
   }
 
+  const cappedMaturityHours = Math.max(12, Math.min(Math.max(12, maxHarvestHoursCap), crop.maturityHours));
+
   if (tier.wateredAtMs === null) {
     return {
       growthPct: 5,
@@ -408,8 +413,8 @@ export function computeTierLiveMetrics(
       waterPct: 0,
       waterPctExact: 0,
       harvestReady: false,
-      remainingMs: crop.maturityHours * 3600000,
-      countdownLabel: `${crop.maturityHours}h 00m 00s`,
+      remainingMs: cappedMaturityHours * 3600000,
+      countdownLabel: `${cappedMaturityHours}h 00m 00s`,
       waterRemainingMs: 0,
       waterCountdownLabel: 'Needs Water',
       harvestAtMs: null,
@@ -417,7 +422,7 @@ export function computeTierLiveMetrics(
     };
   }
 
-  const maturityMs = crop.maturityHours * 3600000;
+  const maturityMs = cappedMaturityHours * 3600000;
   const elapsedMs = Math.max(0, nowMs - tier.plantedAtMs);
   const remainingMs = Math.max(0, maturityMs - elapsedMs);
   const harvestAtMs = tier.plantedAtMs + maturityMs;

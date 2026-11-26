@@ -23,6 +23,7 @@ import {
   Footprints,
   Hammer,
 } from 'lucide-react';
+import type { ActiveZone } from '../firebase/firebaseClient';
 import {
   BANNER_STAGE_OPTIONS,
   formatStopwatchMs,
@@ -40,6 +41,7 @@ import {
   type TierSaveState,
   type WeatherMode,
 } from '../workshop/crops';
+import type { SolarProgressState } from '../workshop/solarData';
 import { BUILD_STEPS, type GradeTier } from '../workshop/steps';
 
 interface WorkshopHudProps {
@@ -60,6 +62,9 @@ interface WorkshopHudProps {
   door3: Door3ProgressState;
   compostYieldsSinceRefresh: number;
   compostYieldCycleLimit: number;
+  solar: SolarProgressState;
+  solarPumpEfficiencyPct: number;
+  maxHarvestHoursCap: number;
   competitionTimerEnabled: boolean;
   competitionElapsedMs: number;
   bestCompetitionMs: number | null;
@@ -72,6 +77,7 @@ interface WorkshopHudProps {
   onToggleRackDropdown: () => void;
   onToggleCompostDropdown: () => void;
   onSelectGrade: (tier: GradeTier) => void;
+  onSwitchZone: (zone: ActiveZone) => void;
   onReplayVoiceover: () => void;
   onToggleMute: () => void;
   onToggleCutaway: () => void;
@@ -111,6 +117,9 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
   door3,
   compostYieldsSinceRefresh,
   compostYieldCycleLimit,
+  solar,
+  solarPumpEfficiencyPct,
+  maxHarvestHoursCap,
   competitionTimerEnabled,
   competitionElapsedMs,
   bestCompetitionMs,
@@ -123,6 +132,7 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
   onToggleRackDropdown,
   onToggleCompostDropdown,
   onSelectGrade,
+  onSwitchZone,
   onReplayVoiceover,
   onToggleMute,
   onToggleCutaway,
@@ -141,7 +151,9 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
   const isKitchen = hudState.activeZone === 'kitchen';
   const isGarden = hudState.activeZone === 'garden';
   const isCompost = hudState.activeZone === 'compost';
+  const isSolar = hudState.activeZone === 'solar';
   const isComplete = hudState.stepId === 'COMPLETE';
+  const solarDustAlert = solar.dustLevel > 0;
   const door3DoneCount = countDoor3CompletedWorkstations(door3);
   const safeLimit = Math.max(1, compostYieldCycleLimit);
   const yieldsRemaining = Math.max(0, safeLimit - compostYieldsSinceRefresh);
@@ -261,13 +273,13 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
       )}
 
       {/* Top-Left Compact Zone, Non-Clickable Round-Loop Wayfinder & Collapsible Dropdowns */}
-      <div className="fixed top-4 left-4 z-20 flex flex-col items-start gap-2 pointer-events-auto max-w-[70vw]">
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="fixed top-4 left-4 z-20 flex flex-col items-start gap-1.5 pointer-events-auto max-w-[64vw] sm:max-w-[66vw]">
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
             onClick={onReplayVoiceover}
             title="Summon Prof. E Voice Guide"
-            className="flex items-center gap-2 rounded-xl bg-slate-950/90 hover:bg-slate-900 border border-slate-700/80 px-3 py-2 shadow-lg transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 rounded-xl bg-slate-950/90 hover:bg-slate-900 border border-slate-700/80 px-2.5 py-1.5 shadow-lg transition-colors cursor-pointer"
           >
             <Sparkles className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
             {isKitchen ? (
@@ -300,7 +312,7 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
                   </span>
                 )}
               </>
-            ) : (
+            ) : isCompost ? (
               <>
                 <span className="text-xs font-mono font-semibold text-amber-300">
                   DOOR 3 · COMPOST
@@ -309,29 +321,87 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
                   {door3DoneCount}/3 Done
                 </span>
               </>
+            ) : (
+              <>
+                <span className="text-xs font-mono font-semibold text-yellow-300">
+                  DOOR 4 · SOLAR LAB
+                </span>
+                <span className="text-xs sm:text-sm font-semibold text-white tabular-nums">
+                  {solar.step >= 5 ? 'Operational Hub' : `Step ${solar.step}/4`}
+                </span>
+              </>
             )}
           </button>
 
-          {/* Non-clickable Round-Loop Walk-Through Door Indicator */}
+          {/* Compact Room 1–4 Switcher Pills */}
           <div
-            title="Walk toward either South doorway inside the 3D room to walk straight into the next zone"
-            className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold border bg-slate-950/90 text-slate-200 border-slate-700/80 shadow-lg select-none"
+            role="group"
+            aria-label="Workshop Rooms"
+            className="flex items-center gap-1 rounded-xl bg-slate-950/90 border border-slate-700/80 p-1 shadow-lg"
           >
-            <Footprints className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-            <span className="hidden md:inline text-slate-300">
-              {isKitchen
-                ? 'South Doors → Garden (2) · Compost (3)'
-                : isGarden
-                  ? 'South Doors → Kitchen (1) · Compost (3)'
-                  : 'South Doors → Garden (2) · Kitchen (1)'}
-            </span>
-            <span className="md:hidden text-slate-300">Walk South Doors</span>
-            {isKitchen && isComplete && readyPipeCount > 0 && (
-              <span className="ml-0.5 px-1.5 py-0.5 rounded bg-emerald-500/25 text-emerald-200 font-mono text-[10px]">
-                Pipe Ready · Walk Door 2
-              </span>
-            )}
+            {(
+              [
+                { id: 'kitchen' as const, label: '1 Kitchen' },
+                { id: 'garden' as const, label: '2 Garden' },
+                { id: 'compost' as const, label: '3 Compost' },
+                { id: 'solar' as const, label: '4 Solar Lab' },
+              ] as const
+            ).map((room) => {
+              const active = hudState.activeZone === room.id;
+              const isSolarAlertPill = room.id === 'solar' && solarDustAlert;
+              return (
+                <button
+                  key={room.id}
+                  type="button"
+                  onClick={() => onSwitchZone(room.id)}
+                  className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    isSolarAlertPill
+                      ? 'animate-solar-warning bg-amber-500 text-slate-950 border border-amber-200 font-bold'
+                      : active
+                        ? room.id === 'solar'
+                          ? 'bg-amber-400 text-slate-950 font-bold'
+                          : 'bg-emerald-600 text-white font-bold'
+                        : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
+                  }`}
+                >
+                  {room.label}
+                </button>
+              );
+            })}
           </div>
+
+          {/* Non-clickable Round-Loop Walk-Through Door Indicator */}
+          {!isSolar && (
+            <div
+              title="Walk toward the glowing doors inside the 3D workshop to step straight into the next zone"
+              className="hidden xl:flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-semibold border bg-slate-950/90 text-slate-200 border-slate-700/80 shadow-lg select-none"
+            >
+              <Footprints className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span className="text-slate-300">
+                {isKitchen
+                  ? 'South Doors → Garden (2) · Compost (3)'
+                  : isGarden
+                    ? 'Doors → Kitchen (1) · Compost (3) · East Solar (4)'
+                    : 'Doors → Garden (2) · Kitchen (1) · East Solar (4)'}
+              </span>
+              {isKitchen && isComplete && readyPipeCount > 0 && (
+                <span className="ml-0.5 px-1.5 py-0.5 rounded bg-emerald-500/25 text-emerald-200 font-mono text-[10px]">
+                  Pipe Ready · Walk Door 2
+                </span>
+              )}
+            </div>
+          )}
+
+          {solarDustAlert && !isSolar && (
+            <button
+              type="button"
+              onClick={() => onSwitchZone('solar')}
+              className="animate-solar-warning flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold border bg-amber-500 hover:bg-amber-400 text-slate-950 border-amber-200 shadow-lg whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <Sun className="w-3.5 h-3.5 shrink-0" />
+              <span>Solar efficiency dropping—check your power system!</span>
+            </button>
+          )}
 
           {compostNeedsRefresh && !isCompost && (
             <div className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold border bg-amber-500/95 text-slate-950 border-amber-300 shadow-lg select-none">
@@ -444,7 +514,9 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
                   weatherMode,
                   shadeClothInstalled,
                   windbreakInstalled,
-                  stormBraceInstalled
+                  stormBraceInstalled,
+                  maxHarvestHoursCap,
+                  solarPumpEfficiencyPct
                 );
                 const crop = getCropById(t.cropId);
                 return (

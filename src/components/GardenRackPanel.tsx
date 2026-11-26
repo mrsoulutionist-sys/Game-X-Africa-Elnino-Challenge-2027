@@ -41,6 +41,9 @@ interface GardenRackPanelProps {
   compostYieldsSinceRefresh: number;
   compostYieldCycleLimit: number;
   compostCycleCount: number;
+  maxHarvestHoursCap?: number;
+  solarPumpEfficiencyPct?: number;
+  solarDustWarning?: boolean;
   nowMs: number;
   onClose: () => void;
   onChangeRackSize: (size: number) => void;
@@ -99,6 +102,9 @@ export const GardenRackPanel: React.FC<GardenRackPanelProps> = ({
   compostYieldsSinceRefresh,
   compostYieldCycleLimit,
   compostCycleCount,
+  maxHarvestHoursCap = 24,
+  solarPumpEfficiencyPct = 100,
+  solarDustWarning = false,
   nowMs,
   onClose,
   onChangeRackSize,
@@ -145,6 +151,9 @@ export const GardenRackPanel: React.FC<GardenRackPanelProps> = ({
               <span>Servings: {foodServings}</span>
               <span className="text-sky-300">Water Saved: {Math.round(litresSaved)} L</span>
               <span className="text-amber-300">Eco-Builder: {ecoBuilderPoints} pts</span>
+              <span className={solarDustWarning ? 'text-amber-300 font-bold' : 'text-emerald-300'}>
+                Solar Pumps: {solarPumpEfficiencyPct}%
+              </span>
               <span className="text-slate-400 flex items-center gap-1">
                 <Clock className="w-3 h-3 text-emerald-400" />
                 Live 24/7 Growth Clock
@@ -279,7 +288,9 @@ export const GardenRackPanel: React.FC<GardenRackPanelProps> = ({
               weatherMode,
               shadeClothInstalled,
               windbreakInstalled,
-              stormBraceInstalled
+              stormBraceInstalled,
+              maxHarvestHoursCap,
+              solarPumpEfficiencyPct
             );
             const crop = getCropById(tier.cropId);
             const builtInfo = builtMap.get(idx);
