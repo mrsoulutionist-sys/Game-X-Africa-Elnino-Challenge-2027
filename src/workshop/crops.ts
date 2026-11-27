@@ -359,7 +359,11 @@ export function computeTierLiveMetrics(
   }
 
   const crop = getCropById(tier.cropId);
-  const baseWaterDuration = crop ? crop.waterDurationHours : tier.waterDurationHours || 84;
+  const rawBaseWater = crop ? crop.waterDurationHours : tier.waterDurationHours;
+  const baseWaterDuration =
+    typeof rawBaseWater === 'number' && Number.isFinite(rawBaseWater) && rawBaseWater > 0
+      ? Math.max(1, Math.min(500, rawBaseWater))
+      : 84;
   const forecast = WEATHER_FORECASTS[weatherMode] ?? WEATHER_FORECASTS.normal;
   let mitigation = 1.0;
   if (shadeClothInstalled) mitigation *= 0.65;
@@ -369,26 +373,30 @@ export function computeTierLiveMetrics(
   if (stormBraceInstalled && weatherMode === 'rain_storm') {
     mitigation *= 0.85;
   }
-  const evapMult = forecast.evapMultiplier * mitigation;
-  const solarFactor = Math.max(0.55, Math.min(1.06, solarPumpEfficiencyPct / 100));
-  const effectiveWaterMs = ((baseWaterDuration * solarFactor) / evapMult) * 3600000;
+  const evapMult = Math.max(0.2, forecast.evapMultiplier * mitigation);
+  const safePumpPct =
+    typeof solarPumpEfficiencyPct === 'number' && Number.isFinite(solarPumpEfficiencyPct)
+      ? solarPumpEfficiencyPct
+      : 100;
+  const solarFactor = Math.max(0.55, Math.min(1.06, safePumpPct / 100));
+  const effectiveWaterMs = Math.max(60_000, ((baseWaterDuration * solarFactor) / evapMult) * 3600000);
 
   let waterPctExact = 0;
   let waterRemainingMs = 0;
-  if (tier.wateredAtMs !== null) {
+  if (tier.wateredAtMs !== null && Number.isFinite(tier.wateredAtMs)) {
     const elapsedWaterMs = Math.max(0, nowMs - tier.wateredAtMs);
     waterRemainingMs = Math.max(0, effectiveWaterMs - elapsedWaterMs);
     waterPctExact = Math.max(0, Math.min(100, (waterRemainingMs / effectiveWaterMs) * 100));
   }
   const waterPct = Math.round(waterPctExact);
   const waterCountdownLabel =
-    tier.wateredAtMs === null
+    tier.wateredAtMs === null || !Number.isFinite(tier.wateredAtMs)
       ? 'Empty'
       : waterRemainingMs <= 0
         ? 'Dry — Refill'
         : formatDurationCompact(waterRemainingMs, false);
 
-  if (!crop || tier.plantedAtMs === null) {
+  if (!crop || tier.plantedAtMs === null || !Number.isFinite(tier.plantedAtMs)) {
     return {
       growthPct: 0,
       growthPctExact: 0,
@@ -404,9 +412,13 @@ export function computeTierLiveMetrics(
     };
   }
 
-  const cappedMaturityHours = Math.max(12, Math.min(Math.max(12, maxHarvestHoursCap), crop.maturityHours));
+  const safeCap =
+    typeof maxHarvestHoursCap === 'number' && Number.isFinite(maxHarvestHoursCap)
+      ? Math.max(12, Math.min(24, maxHarvestHoursCap))
+      : 24;
+  const cappedMaturityHours = Math.max(12, Math.min(safeCap, crop.maturityHours));
 
-  if (tier.wateredAtMs === null) {
+  if (tier.wateredAtMs === null || !Number.isFinite(tier.wateredAtMs)) {
     return {
       growthPct: 5,
       growthPctExact: 5,
@@ -426,7 +438,7 @@ export function computeTierLiveMetrics(
   const elapsedMs = Math.max(0, nowMs - tier.plantedAtMs);
   const remainingMs = Math.max(0, maturityMs - elapsedMs);
   const harvestAtMs = tier.plantedAtMs + maturityMs;
-  const growthPctExact = Math.min(100, (elapsedMs / maturityMs) * 100);
+  const growthPctExact = Math.max(0, Math.min(100, (elapsedMs / maturityMs) * 100));
   const growthPct = Math.min(100, Math.round(growthPctExact));
 
   const harvestReady = remainingMs <= 0 || growthPctExact >= 100;

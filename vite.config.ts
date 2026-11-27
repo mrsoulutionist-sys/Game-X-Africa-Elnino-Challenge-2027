@@ -23,7 +23,7 @@ function resolveProductionBase(): string {
     const repoName = ghRepo.split('/')[1];
     if (repoName) return normalizeBasePath(repoName);
   }
-  return '/Game-X-Africa-Elnino-Challenge-2027/';
+  return '/';
 }
 
 export default defineConfig(({ command }) => {

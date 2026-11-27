@@ -22,6 +22,7 @@ import {
 import {
   db,
   handleFirestoreError,
+  logFirestoreListenerError,
   OperationType,
   SCHOOL_GRADES,
   type FarmerProfile,
@@ -256,43 +257,46 @@ const STARTER_CARE_BUNDLES: StarterBundleDef[] = [
   },
 ];
 
-let careBundlesInitialized = false;
+let careBundlesPromise: Promise<void> | null = null;
 
 /**
  * Seeds only the care_bundle listings if they do not yet exist in Firestore.
  * Does NOT overwrite live stock quantities or create fake student harvests.
  */
-export async function ensureStarterCareListings(): Promise<void> {
-  if (careBundlesInitialized) return;
-  careBundlesInitialized = true;
+export function ensureStarterCareListings(): Promise<void> {
+  if (careBundlesPromise) return careBundlesPromise;
 
-  for (const bundle of STARTER_CARE_BUNDLES) {
-    const ref = doc(db, 'store_listings', bundle.listingId);
-    const path = `store_listings/${bundle.listingId}`;
-    try {
-      const snap = await getDoc(ref);
-      if (!snap.exists()) {
-        await setDoc(ref, {
-          listingId: bundle.listingId,
-          title: bundle.title,
-          category: bundle.category,
-          sourceType: 'care_bundle',
-          quantityAvailable: bundle.initialQty,
-          priceZar: bundle.priceZar,
-          schoolId: 'all-sanctuary',
-          schoolName: 'Game X Sanctuary Pantry',
-          grade: 'All Grades',
-          petCareEffect: bundle.petCareEffect,
-          lastHarvestedAt: null,
-          updatedAt: serverTimestamp(),
-          status: 'active',
-        });
+  careBundlesPromise = (async () => {
+    for (const bundle of STARTER_CARE_BUNDLES) {
+      const ref = doc(db, 'store_listings', bundle.listingId);
+      const path = `store_listings/${bundle.listingId}`;
+      try {
+        const snap = await getDoc(ref);
+        if (!snap.exists()) {
+          await setDoc(ref, {
+            listingId: bundle.listingId,
+            title: bundle.title,
+            category: bundle.category,
+            sourceType: 'care_bundle',
+            quantityAvailable: bundle.initialQty,
+            priceZar: bundle.priceZar,
+            schoolId: 'all-sanctuary',
+            schoolName: 'Game X Sanctuary Pantry',
+            grade: 'All Grades',
+            petCareEffect: bundle.petCareEffect,
+            lastHarvestedAt: null,
+            updatedAt: serverTimestamp(),
+            status: 'active',
+          });
+        }
+      } catch (err) {
+        careBundlesPromise = null;
+        handleFirestoreError(err, OperationType.WRITE, path);
       }
-    } catch (err) {
-      careBundlesInitialized = false;
-      handleFirestoreError(err, OperationType.WRITE, path);
     }
-  }
+  })();
+
+  return careBundlesPromise;
 }
 
 export function subscribeToUserAccount(
@@ -326,7 +330,7 @@ export function subscribeToUserAccount(
       });
     },
     (err) => {
-      handleFirestoreError(err, OperationType.GET, path);
+      logFirestoreListenerError(err, OperationType.GET, path);
     }
   );
 }
@@ -389,7 +393,7 @@ export function subscribeToStoreListings(
       onData(rows);
     },
     (err) => {
-      handleFirestoreError(err, OperationType.LIST, path);
+      logFirestoreListenerError(err, OperationType.LIST, path);
     }
   );
 }
@@ -424,7 +428,7 @@ export function subscribeToStudentGrows(onData: (grows: StudentGrow[]) => void):
       onData(rows);
     },
     (err) => {
-      handleFirestoreError(err, OperationType.LIST, path);
+      logFirestoreListenerError(err, OperationType.LIST, path);
     }
   );
 }
@@ -456,7 +460,7 @@ export function subscribeToHarvestBatches(
       onData(rows);
     },
     (err) => {
-      handleFirestoreError(err, OperationType.LIST, path);
+      logFirestoreListenerError(err, OperationType.LIST, path);
     }
   );
 }
@@ -495,7 +499,7 @@ export function subscribeToUserOrders(
       onData(rows);
     },
     (err) => {
-      handleFirestoreError(err, OperationType.LIST, path);
+      logFirestoreListenerError(err, OperationType.LIST, path);
     }
   );
 }
@@ -844,6 +848,7 @@ export async function recordStudentHarvest(params: {
       );
 
       if (lbSnap.exists()) {
+        const existingLb = lbSnap.data() ?? {};
         tx.update(lbRef, {
           studentName,
           schoolId: safeSchoolId,
@@ -853,6 +858,7 @@ export async function recordStudentHarvest(params: {
           totalHarvestedCount: nextLbCount,
           foodServings: safeServings,
           litresSaved: safeLitres,
+          ...(!existingLb.createdAt ? { createdAt: serverTimestamp() } : {}),
           updatedAt: serverTimestamp(),
         });
       } else {

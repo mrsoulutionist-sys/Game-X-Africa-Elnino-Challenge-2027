@@ -281,7 +281,7 @@ export const GardenRackPanel: React.FC<GardenRackPanelProps> = ({
 
         {/* Tier List with Expandable Real-Time Crop Progress Dropdowns */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3">
-          {tiers.map((tier, idx) => {
+          {tiers.slice(0, Math.max(1, Math.min(6, rackSize))).map((tier, idx) => {
             const live = computeTierLiveMetrics(
               tier,
               nowMs,

@@ -16,6 +16,7 @@ import {
   db,
   deriveAdminKey,
   handleFirestoreError,
+  logFirestoreListenerError,
   OperationType,
   type FarmerProfile,
 } from './firebaseClient';
@@ -238,6 +239,25 @@ export async function claimOrLoginAdmin(
   };
 }
 
+export async function restoreAdminByKey(adminKey: string): Promise<AdminProfile | null> {
+  if (!/^[a-f0-9]{64}$/.test(adminKey)) return null;
+  const path = `admins/${adminKey}`;
+  try {
+    const adminSnap = await getDoc(doc(db, 'admins', adminKey));
+    if (!adminSnap.exists()) return null;
+    const data = adminSnap.data() as Record<string, unknown>;
+    return {
+      adminKey,
+      adminName: typeof data.adminName === 'string' && data.adminName.trim() ? data.adminName.trim() : 'Admin',
+      role: 'admin',
+      isFirstClaim: false,
+    };
+  } catch (err) {
+    logFirestoreListenerError(err, OperationType.GET, path);
+    return null;
+  }
+}
+
 function sanitizeBannerStage(raw: unknown): BannerStage {
   return raw === 'kitchen' ||
     raw === 'garden' ||
@@ -322,7 +342,7 @@ export function subscribeToSystemConfig(
       });
     },
     (err) => {
-      handleFirestoreError(err, OperationType.GET, path);
+      logFirestoreListenerError(err, OperationType.GET, path);
     }
   );
 }
@@ -417,7 +437,7 @@ export function subscribeToAdminDocuments(
       onUpdate(rows);
     },
     (err) => {
-      handleFirestoreError(err, OperationType.LIST, 'admin_documents');
+      logFirestoreListenerError(err, OperationType.LIST, 'admin_documents');
     }
   );
 }
@@ -637,7 +657,7 @@ export function subscribeToCompetitionRuns(
       onUpdate(runs);
     },
     (err) => {
-      handleFirestoreError(err, OperationType.LIST, 'competition_runs');
+      logFirestoreListenerError(err, OperationType.LIST, 'competition_runs');
     }
   );
 }

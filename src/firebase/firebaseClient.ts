@@ -152,13 +152,16 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
 let activeFarmerKeyForErrors: string | null = null;
+const farmersNeedingCreatedAtBackfill = new Set<string>();
+const usersNeedingCreatedAtBackfill = new Set<string>();
+const parentsNeedingCreatedAtBackfill = new Set<string>();
 
-export function handleFirestoreError(
+function buildFirestoreErrorInfo(
   error: unknown,
   operationType: OperationType,
   path: string | null
-): never {
-  const errInfo: FirestoreErrorInfo = {
+): FirestoreErrorInfo {
+  return {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
       userId: activeFarmerKeyForErrors,
@@ -166,8 +169,124 @@ export function handleFirestoreError(
     operationType,
     path,
   };
+}
+
+export function handleFirestoreError(
+  error: unknown,
+  operationType: OperationType,
+  path: string | null
+): never {
+  const errInfo = buildFirestoreErrorInfo(error, operationType, path);
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
+}
+
+export function logFirestoreListenerError(
+  error: unknown,
+  operationType: OperationType,
+  path: string | null
+): void {
+  const errInfo = buildFirestoreErrorInfo(error, operationType, path);
+  console.warn('Firestore Listener Warning: ', JSON.stringify(errInfo));
+}
+
+export function formatAuthErrorMessage(error: unknown, fallback: string): string {
+  const raw = error instanceof Error ? error.message : String(error ?? '');
+  let inner = raw;
+  if (raw.trim().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(raw) as { error?: string };
+      if (typeof parsed.error === 'string' && parsed.error.trim()) {
+        inner = parsed.error;
+      }
+    } catch {
+      // keep raw
+    }
+  }
+  const lower = inner.toLowerCase();
+  if (
+    lower.includes('offline') ||
+    lower.includes('network') ||
+    lower.includes('unavailable') ||
+    lower.includes('failed to get document')
+  ) {
+    return 'Unable to reach the farm server right now. Check your internet connection and try again.';
+  }
+  if (lower.includes('missing or insufficient permissions') || lower.includes('permission-denied')) {
+    return 'Account verification was blocked by server security rules. Double-check your name and passcode, or refresh and try again.';
+  }
+  if (inner && !inner.trim().startsWith('{')) {
+    return inner;
+  }
+  return fallback;
+}
+
+export type ActiveSessionDescriptor =
+  | { role: 'student'; key: string }
+  | { role: 'parent'; key: string }
+  | { role: 'admin'; key: string };
+
+const ACTIVE_SESSION_STORAGE_KEY = 'gamex_elnino_active_session_v1';
+
+export function saveActiveSession(session: ActiveSessionDescriptor): void {
+  if (typeof window === 'undefined') return;
+  if (!/^[a-f0-9]{64}$/.test(session.key)) return;
+  const serialized = JSON.stringify(session);
+  try {
+    window.sessionStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, serialized);
+  } catch {
+    // ignore quota/private mode errors
+  }
+  try {
+    window.localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, serialized);
+  } catch {
+    // ignore quota/private mode errors
+  }
+}
+
+export function loadActiveSession(): ActiveSessionDescriptor | null {
+  if (typeof window === 'undefined') return null;
+  const tryParse = (raw: string | null): ActiveSessionDescriptor | null => {
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as Partial<ActiveSessionDescriptor>;
+      if (
+        (parsed.role === 'student' || parsed.role === 'parent' || parsed.role === 'admin') &&
+        typeof parsed.key === 'string' &&
+        /^[a-f0-9]{64}$/.test(parsed.key)
+      ) {
+        return { role: parsed.role, key: parsed.key };
+      }
+    } catch {
+      // ignore invalid JSON
+    }
+    return null;
+  };
+  try {
+    const fromSession = tryParse(window.sessionStorage.getItem(ACTIVE_SESSION_STORAGE_KEY));
+    if (fromSession) return fromSession;
+  } catch {
+    // ignore
+  }
+  try {
+    return tryParse(window.localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY));
+  } catch {
+    return null;
+  }
+}
+
+export function clearActiveSession(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+  try {
+    window.localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
 }
 
 export async function testFirestoreConnection(): Promise<boolean> {
@@ -424,6 +543,9 @@ async function syncUnifiedUserAccount(params: {
 
   if (snap.exists()) {
     const existing = snap.data() as Record<string, unknown>;
+    if (!existing.createdAt) {
+      usersNeedingCreatedAtBackfill.add(params.uid);
+    }
     const existingWallet =
       typeof existing.walletBalanceZar === 'number' && Number.isFinite(existing.walletBalanceZar)
         ? Math.max(0, existing.walletBalanceZar)
@@ -438,6 +560,9 @@ async function syncUnifiedUserAccount(params: {
       grade: safeGrade,
       updatedAt: serverTimestamp(),
     };
+    if (!existing.createdAt || usersNeedingCreatedAtBackfill.has(params.uid)) {
+      updatePayload.createdAt = serverTimestamp();
+    }
     if (params.grades && params.grades.length > 0) {
       updatePayload.grades = params.grades;
     }
@@ -457,6 +582,7 @@ async function syncUnifiedUserAccount(params: {
 
     try {
       await updateDoc(ref, updatePayload);
+      usersNeedingCreatedAtBackfill.delete(params.uid);
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, path);
     }
@@ -497,6 +623,119 @@ async function syncUnifiedUserAccount(params: {
   return { walletBalanceZar };
 }
 
+function hydrateFarmerProfileFromDoc(
+  farmerKey: string,
+  fallbackName: string,
+  data: Record<string, unknown>
+): FarmerProfile {
+  if (!data.createdAt) {
+    farmersNeedingCreatedAtBackfill.add(farmerKey);
+  }
+  const rackSize =
+    typeof data.rackSize === 'number' ? Math.max(1, Math.min(6, Math.round(data.rackSize))) : 2;
+  const rawStep = String(data.kitchenStep || 'GET_SAW') as BuildStepId;
+  const kitchenStep: BuildStepId = VALID_KITCHEN_STEPS.has(rawStep) ? rawStep : 'GET_SAW';
+  const activeZone: ActiveZone =
+    data.activeZone === 'garden'
+      ? 'garden'
+      : data.activeZone === 'compost'
+        ? 'compost'
+        : data.activeZone === 'solar'
+          ? 'solar'
+          : 'kitchen';
+  const rawWeather = String(data.weatherMode || 'normal') as WeatherMode;
+  const weatherMode: WeatherMode = VALID_WEATHER_MODES.has(rawWeather) ? rawWeather : 'normal';
+  const jojoCapacity =
+    typeof data.jojoCapacity === 'number'
+      ? Math.max(20, Math.min(500, data.jojoCapacity))
+      : 60;
+  const jojoLitres =
+    typeof data.jojoLitres === 'number'
+      ? Math.max(0, Math.min(jojoCapacity, data.jojoLitres))
+      : 18;
+
+  const resolvedSchoolName =
+    typeof data.schoolName === 'string' && data.schoolName.trim() ? data.schoolName.trim() : undefined;
+  const resolvedSchoolKey =
+    typeof data.schoolKey === 'string' && data.schoolKey.trim()
+      ? data.schoolKey.trim()
+      : resolvedSchoolName
+        ? normalizeSchoolKey(resolvedSchoolName)
+        : undefined;
+  const resolvedGrade =
+    typeof data.grade === 'string' && VALID_SCHOOL_GRADES.has(data.grade as SchoolGrade)
+      ? (data.grade as SchoolGrade)
+      : undefined;
+  const resolvedTeacher =
+    typeof data.teacherName === 'string' && data.teacherName.trim()
+      ? data.teacherName.trim()
+      : undefined;
+
+  const resolvedFarmerName = String(data.farmerName || fallbackName).slice(0, 40) || 'Farmer';
+  const sanitizedTiers = sanitizeTiers(data.tiers, rackSize);
+  const sanitizedBuiltRacks = sanitizeBuiltRacks(
+    data.builtRacks,
+    sanitizedTiers,
+    rackSize,
+    resolvedFarmerName
+  );
+  const resolvedEcoPoints = calculateEcoBuilderPoints(
+    sanitizedBuiltRacks,
+    data.ecoBuilderPoints
+  );
+
+  return {
+    farmerKey,
+    farmerName: resolvedFarmerName,
+    activeZone,
+    kitchenStep,
+    rackSize,
+    tiers: sanitizedTiers,
+    totalHarvestedCount:
+      typeof data.totalHarvestedCount === 'number' ? Math.max(0, data.totalHarvestedCount) : 0,
+    jojoInstalled: Boolean(data.jojoInstalled),
+    jojoLitres,
+    jojoCapacity,
+    shadeClothInstalled: Boolean(data.shadeClothInstalled),
+    windbreakInstalled: Boolean(data.windbreakInstalled),
+    stormBraceInstalled: Boolean(data.stormBraceInstalled),
+    weatherMode,
+    litresSaved: typeof data.litresSaved === 'number' ? Math.max(0, data.litresSaved) : 0,
+    foodServings:
+      typeof data.foodServings === 'number' ? Math.max(0, Math.round(data.foodServings)) : 0,
+    door3: sanitizeDoor3(data),
+    compostYieldsSinceRefresh: clampInt(data.compostYieldsSinceRefresh, 0, 50, 0),
+    compostCycleCount: clampInt(data.compostCycleCount, 0, 10000, 0),
+    bestCompetitionMs:
+      typeof data.bestCompetitionMs === 'number' && data.bestCompetitionMs >= 0
+        ? Math.min(86400000, Math.round(data.bestCompetitionMs))
+        : null,
+    builtRacks: sanitizedBuiltRacks,
+    ecoBuilderPoints: resolvedEcoPoints,
+    solar: sanitizeSolar(data),
+    role: 'student',
+    ...(resolvedSchoolName ? { schoolName: resolvedSchoolName } : {}),
+    ...(resolvedSchoolKey ? { schoolKey: resolvedSchoolKey } : {}),
+    ...(resolvedGrade ? { grade: resolvedGrade } : {}),
+    ...(resolvedTeacher ? { teacherName: resolvedTeacher } : {}),
+  };
+}
+
+export async function restoreFarmerByKey(farmerKey: string): Promise<FarmerProfile | null> {
+  if (!/^[a-f0-9]{64}$/.test(farmerKey)) return null;
+  activeFarmerKeyForErrors = farmerKey;
+  const path = `farmers/${farmerKey}`;
+  try {
+    const snap = await getDoc(doc(db, 'farmers', farmerKey));
+    if (!snap.exists()) return null;
+    const data = snap.data() as Record<string, unknown>;
+    return hydrateFarmerProfileFromDoc(farmerKey, 'Farmer', data);
+  } catch (err) {
+    logFirestoreListenerError(err, OperationType.GET, path);
+    return null;
+  }
+}
+
 export async function loginOrCreateFarmer(
   rawName: string,
   passcode: string,
@@ -523,28 +762,9 @@ export async function loginOrCreateFarmer(
 
   if (snap.exists()) {
     const data = snap.data() as Record<string, unknown>;
-    const rackSize =
-      typeof data.rackSize === 'number' ? Math.max(1, Math.min(6, Math.round(data.rackSize))) : 2;
-    const rawStep = String(data.kitchenStep || 'GET_SAW') as BuildStepId;
-    const kitchenStep: BuildStepId = VALID_KITCHEN_STEPS.has(rawStep) ? rawStep : 'GET_SAW';
-    const activeZone: ActiveZone =
-      data.activeZone === 'garden'
-        ? 'garden'
-        : data.activeZone === 'compost'
-          ? 'compost'
-          : data.activeZone === 'solar'
-            ? 'solar'
-            : 'kitchen';
-    const rawWeather = String(data.weatherMode || 'normal') as WeatherMode;
-    const weatherMode: WeatherMode = VALID_WEATHER_MODES.has(rawWeather) ? rawWeather : 'normal';
-    const jojoCapacity =
-      typeof data.jojoCapacity === 'number'
-        ? Math.max(20, Math.min(500, data.jojoCapacity))
-        : 60;
-    const jojoLitres =
-      typeof data.jojoLitres === 'number'
-        ? Math.max(0, Math.min(jojoCapacity, data.jojoLitres))
-        : 18;
+    if (!data.createdAt) {
+      farmersNeedingCreatedAtBackfill.add(farmerKey);
+    }
 
     if (cleanSchoolName && cleanGrade) {
       const metadataChanged =
@@ -552,9 +772,10 @@ export async function loginOrCreateFarmer(
         data.schoolName !== cleanSchoolName ||
         data.schoolKey !== schoolKey ||
         data.grade !== cleanGrade ||
-        (Boolean(cleanTeacherName) && data.teacherName !== cleanTeacherName);
+        (Boolean(cleanTeacherName) && data.teacherName !== cleanTeacherName) ||
+        !data.createdAt;
       if (metadataChanged) {
-        const studentMetaMerge: Record<string, unknown> = {
+        const studentMetaUpdate: Record<string, unknown> = {
           role: 'student',
           schoolName: cleanSchoolName,
           schoolKey,
@@ -562,71 +783,28 @@ export async function loginOrCreateFarmer(
           updatedAt: serverTimestamp(),
         };
         if (cleanTeacherName) {
-          studentMetaMerge.teacherName = cleanTeacherName;
+          studentMetaUpdate.teacherName = cleanTeacherName;
+        }
+        if (!data.createdAt) {
+          studentMetaUpdate.createdAt = serverTimestamp();
         }
         try {
-          await setDoc(ref, studentMetaMerge, { merge: true });
+          await updateDoc(ref, studentMetaUpdate);
+          farmersNeedingCreatedAtBackfill.delete(farmerKey);
         } catch (err) {
           handleFirestoreError(err, OperationType.UPDATE, path);
         }
       }
     }
 
-    const resolvedSchoolName =
-      cleanSchoolName || (typeof data.schoolName === 'string' ? data.schoolName : undefined);
-    const resolvedSchoolKey =
-      schoolKey || (typeof data.schoolKey === 'string' ? data.schoolKey : undefined);
-    const resolvedGrade =
-      cleanGrade ||
-      (typeof data.grade === 'string' && VALID_SCHOOL_GRADES.has(data.grade as SchoolGrade)
-        ? (data.grade as SchoolGrade)
-        : undefined);
-    const resolvedTeacher =
-      cleanTeacherName || (typeof data.teacherName === 'string' ? data.teacherName : undefined);
-
-    const resolvedFarmerName = String(data.farmerName || farmerName).slice(0, 40);
-    const sanitizedTiers = sanitizeTiers(data.tiers, rackSize);
-    const sanitizedBuiltRacks = sanitizeBuiltRacks(
-      data.builtRacks,
-      sanitizedTiers,
-      rackSize,
-      resolvedFarmerName
-    );
-    const resolvedEcoPoints = calculateEcoBuilderPoints(
-      sanitizedBuiltRacks,
-      data.ecoBuilderPoints
-    );
+    const baseProfile = hydrateFarmerProfileFromDoc(farmerKey, farmerName, data);
+    const resolvedSchoolName = cleanSchoolName || baseProfile.schoolName;
+    const resolvedSchoolKey = schoolKey || baseProfile.schoolKey;
+    const resolvedGrade = cleanGrade || baseProfile.grade;
+    const resolvedTeacher = cleanTeacherName || baseProfile.teacherName;
 
     const profile: FarmerProfile = {
-      farmerKey,
-      farmerName: resolvedFarmerName,
-      activeZone,
-      kitchenStep,
-      rackSize,
-      tiers: sanitizedTiers,
-      totalHarvestedCount:
-        typeof data.totalHarvestedCount === 'number' ? Math.max(0, data.totalHarvestedCount) : 0,
-      jojoInstalled: Boolean(data.jojoInstalled),
-      jojoLitres,
-      jojoCapacity,
-      shadeClothInstalled: Boolean(data.shadeClothInstalled),
-      windbreakInstalled: Boolean(data.windbreakInstalled),
-      stormBraceInstalled: Boolean(data.stormBraceInstalled),
-      weatherMode,
-      litresSaved: typeof data.litresSaved === 'number' ? Math.max(0, data.litresSaved) : 0,
-      foodServings:
-        typeof data.foodServings === 'number' ? Math.max(0, Math.round(data.foodServings)) : 0,
-      door3: sanitizeDoor3(data),
-      compostYieldsSinceRefresh: clampInt(data.compostYieldsSinceRefresh, 0, 50, 0),
-      compostCycleCount: clampInt(data.compostCycleCount, 0, 10000, 0),
-      bestCompetitionMs:
-        typeof data.bestCompetitionMs === 'number' && data.bestCompetitionMs >= 0
-          ? Math.min(86400000, Math.round(data.bestCompetitionMs))
-          : null,
-      builtRacks: sanitizedBuiltRacks,
-      ecoBuilderPoints: resolvedEcoPoints,
-      solar: sanitizeSolar(data),
-      role: 'student',
+      ...baseProfile,
       ...(resolvedSchoolName ? { schoolName: resolvedSchoolName } : {}),
       ...(resolvedSchoolKey ? { schoolKey: resolvedSchoolKey } : {}),
       ...(resolvedGrade ? { grade: resolvedGrade } : {}),
@@ -682,17 +860,14 @@ export async function loginOrCreateFarmer(
 
   try {
     const { door3, solar, ...baseFields } = freshProfile;
-    await setDoc(
-      ref,
-      {
-        ...baseFields,
-        ...serializeDoor3(door3),
-        ...(hasNonDefaultSolar(solar) ? serializeSolar(solar) : {}),
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true }
-    );
+    await setDoc(ref, {
+      ...baseFields,
+      ...serializeDoor3(door3),
+      ...(hasNonDefaultSolar(solar) ? serializeSolar(solar) : {}),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    farmersNeedingCreatedAtBackfill.delete(farmerKey);
   } catch (err) {
     handleFirestoreError(err, OperationType.CREATE, path);
   }
@@ -711,6 +886,49 @@ export async function loginOrCreateFarmer(
   });
 
   return { profile: freshProfile, isReturning: false };
+}
+
+export async function restoreParentByKey(parentKey: string): Promise<ParentProfile | null> {
+  if (!/^[a-f0-9]{64}$/.test(parentKey)) return null;
+  activeFarmerKeyForErrors = parentKey;
+  const path = `parents/${parentKey}`;
+  try {
+    const snap = await getDoc(doc(db, 'parents', parentKey));
+    if (!snap.exists()) return null;
+    const d = snap.data() as Record<string, unknown>;
+    if (!d.createdAt) {
+      parentsNeedingCreatedAtBackfill.add(parentKey);
+    }
+    const cleanRole: SupporterRole =
+      typeof d.role === 'string' && VALID_SUPPORTER_ROLES.has(d.role as SupporterRole)
+        ? (d.role as SupporterRole)
+        : 'parent';
+    const rawGrades = Array.isArray(d.grades) ? d.grades : [];
+    const cleanGrades: SchoolGrade[] = rawGrades.filter(
+      (g): g is SchoolGrade => typeof g === 'string' && VALID_SCHOOL_GRADES.has(g as SchoolGrade)
+    );
+    if (cleanGrades.length === 0) cleanGrades.push('Grade 4');
+    const wallet =
+      typeof d.walletBalanceZar === 'number' && Number.isFinite(d.walletBalanceZar)
+        ? Math.max(0, d.walletBalanceZar)
+        : 0;
+    const schoolName = typeof d.schoolName === 'string' && d.schoolName.trim() ? d.schoolName.trim() : 'Community School';
+    return {
+      parentKey,
+      role: cleanRole,
+      pseudonym: typeof d.pseudonym === 'string' && d.pseudonym.trim() ? d.pseudonym.trim() : 'Parent',
+      schoolName,
+      schoolKey:
+        typeof d.schoolKey === 'string' && d.schoolKey.trim()
+          ? d.schoolKey.trim()
+          : normalizeSchoolKey(schoolName),
+      grades: cleanGrades,
+      walletBalanceZar: wallet,
+    };
+  } catch (err) {
+    logFirestoreListenerError(err, OperationType.GET, path);
+    return null;
+  }
 }
 
 export async function loginOrCreateParent(
@@ -756,19 +974,21 @@ export async function loginOrCreateParent(
       ? (existingData.adoptedPets as unknown[])
       : [];
 
+    const parentUpdate: Record<string, unknown> = {
+      role: cleanRole,
+      pseudonym,
+      schoolName,
+      schoolKey,
+      grades: cleanGrades,
+      updatedAt: serverTimestamp(),
+    };
+    if (!existingData.createdAt || parentsNeedingCreatedAtBackfill.has(parentKey)) {
+      parentUpdate.createdAt = serverTimestamp();
+    }
+
     try {
-      await setDoc(
-        ref,
-        {
-          role: cleanRole,
-          pseudonym,
-          schoolName,
-          schoolKey,
-          grades: cleanGrades,
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
+      await updateDoc(ref, parentUpdate);
+      parentsNeedingCreatedAtBackfill.delete(parentKey);
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, path);
     }
@@ -808,15 +1028,12 @@ export async function loginOrCreateParent(
   };
 
   try {
-    await setDoc(
-      ref,
-      {
-        ...profile,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true }
-    );
+    await setDoc(ref, {
+      ...profile,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    parentsNeedingCreatedAtBackfill.delete(parentKey);
   } catch (err) {
     handleFirestoreError(err, OperationType.CREATE, path);
   }
@@ -836,11 +1053,19 @@ export async function loginOrCreateParent(
   return { profile, isReturning: false };
 }
 
-export async function saveFarmerProgress(profile: FarmerProfile): Promise<void> {
-  activeFarmerKeyForErrors = profile.farmerKey;
-  const path = `farmers/${profile.farmerKey}`;
-  const ref = doc(db, 'farmers', profile.farmerKey);
+interface CoalescedFarmerWrite {
+  inFlight: Promise<void> | null;
+  pendingProfile: FarmerProfile | null;
+  debounceTimer: number | null;
+  waiters: Array<{ resolve: () => void; reject: (err: unknown) => void }>;
+}
 
+const farmerWriteQueues = new Map<string, CoalescedFarmerWrite>();
+
+function buildFarmerUpdatePayload(profile: FarmerProfile): {
+  updateFields: Record<string, unknown>;
+  normalizedProfile: FarmerProfile;
+} {
   const rackSize = clampInt(profile.rackSize, 1, 6, 2);
   const cleanTiers = sanitizeTiers(profile.tiers, rackSize);
   const cleanBuiltRacks = sanitizeBuiltRacks(
@@ -874,46 +1099,160 @@ export async function saveFarmerProgress(profile: FarmerProfile): Promise<void> 
   const kitchenStep: BuildStepId = VALID_KITCHEN_STEPS.has(profile.kitchenStep)
     ? profile.kitchenStep
     : 'GET_SAW';
+  const cleanName = profile.farmerName.trim().slice(0, 40) || 'Farmer';
+  const cleanSolar = profile.solar ?? DEFAULT_SOLAR_PROGRESS;
+  const cleanDoor3 = profile.door3 ?? DEFAULT_DOOR3_PROGRESS;
 
-  try {
-    await updateDoc(ref, {
-      farmerName: profile.farmerName.trim().slice(0, 40) || 'Farmer',
+  const updateFields: Record<string, unknown> = {
+    farmerName: cleanName,
+    activeZone,
+    kitchenStep,
+    rackSize,
+    tiers: cleanTiers,
+    builtRacks: cleanBuiltRacks,
+    ecoBuilderPoints: cleanEcoBuilderPoints,
+    totalHarvestedCount: clampInt(profile.totalHarvestedCount, 0, 100000, 0),
+    jojoInstalled: Boolean(profile.jojoInstalled),
+    jojoLitres,
+    jojoCapacity,
+    shadeClothInstalled: Boolean(profile.shadeClothInstalled),
+    windbreakInstalled: Boolean(profile.windbreakInstalled),
+    stormBraceInstalled: Boolean(profile.stormBraceInstalled),
+    weatherMode: VALID_WEATHER_MODES.has(profile.weatherMode) ? profile.weatherMode : 'normal',
+    litresSaved,
+    foodServings: clampInt(profile.foodServings, 0, 1000000, 0),
+    ...serializeDoor3(cleanDoor3),
+    ...(activeZone === 'solar' || hasNonDefaultSolar(cleanSolar) ? serializeSolar(cleanSolar) : {}),
+    compostYieldsSinceRefresh: clampInt(profile.compostYieldsSinceRefresh, 0, 50, 0),
+    compostCycleCount: clampInt(profile.compostCycleCount, 0, 10000, 0),
+    bestCompetitionMs:
+      typeof profile.bestCompetitionMs === 'number' &&
+      Number.isFinite(profile.bestCompetitionMs) &&
+      profile.bestCompetitionMs >= 0
+        ? Math.min(86400000, Math.round(profile.bestCompetitionMs))
+        : null,
+    updatedAt: serverTimestamp(),
+  };
+
+  if (farmersNeedingCreatedAtBackfill.has(profile.farmerKey)) {
+    updateFields.createdAt = serverTimestamp();
+  }
+
+  return {
+    updateFields,
+    normalizedProfile: {
+      ...profile,
+      farmerName: cleanName,
       activeZone,
       kitchenStep,
       rackSize,
       tiers: cleanTiers,
       builtRacks: cleanBuiltRacks,
       ecoBuilderPoints: cleanEcoBuilderPoints,
-      totalHarvestedCount: clampInt(profile.totalHarvestedCount, 0, 100000, 0),
-      jojoInstalled: Boolean(profile.jojoInstalled),
       jojoLitres,
       jojoCapacity,
-      shadeClothInstalled: Boolean(profile.shadeClothInstalled),
-      windbreakInstalled: Boolean(profile.windbreakInstalled),
-      stormBraceInstalled: Boolean(profile.stormBraceInstalled),
-      weatherMode: VALID_WEATHER_MODES.has(profile.weatherMode) ? profile.weatherMode : 'normal',
       litresSaved,
-      foodServings: clampInt(profile.foodServings, 0, 1000000, 0),
-      ...serializeDoor3(profile.door3 ?? DEFAULT_DOOR3_PROGRESS),
-      ...(activeZone === 'solar' || hasNonDefaultSolar(profile.solar ?? DEFAULT_SOLAR_PROGRESS)
-        ? serializeSolar(profile.solar ?? DEFAULT_SOLAR_PROGRESS)
-        : {}),
-      compostYieldsSinceRefresh: clampInt(profile.compostYieldsSinceRefresh, 0, 50, 0),
-      compostCycleCount: clampInt(profile.compostCycleCount, 0, 10000, 0),
-      bestCompetitionMs:
-        typeof profile.bestCompetitionMs === 'number' &&
-        Number.isFinite(profile.bestCompetitionMs) &&
-        profile.bestCompetitionMs >= 0
-          ? Math.min(86400000, Math.round(profile.bestCompetitionMs))
-          : null,
-      updatedAt: serverTimestamp(),
-    });
+    },
+  };
+}
+
+async function executeFarmerSaveOnce(profile: FarmerProfile): Promise<void> {
+  activeFarmerKeyForErrors = profile.farmerKey;
+  const path = `farmers/${profile.farmerKey}`;
+  const ref = doc(db, 'farmers', profile.farmerKey);
+  const { updateFields, normalizedProfile } = buildFarmerUpdatePayload(profile);
+
+  try {
+    await updateDoc(ref, updateFields);
+    farmersNeedingCreatedAtBackfill.delete(profile.farmerKey);
   } catch (err) {
-    handleFirestoreError(err, OperationType.UPDATE, path);
+    const code = (err as { code?: string } | null)?.code;
+    if (code === 'not-found') {
+      try {
+        await setDoc(ref, {
+          farmerKey: profile.farmerKey,
+          role: 'student',
+          ...(profile.schoolName ? { schoolName: profile.schoolName.trim().slice(0, 100) } : {}),
+          ...(profile.schoolKey ? { schoolKey: profile.schoolKey.trim().slice(0, 100) } : {}),
+          ...(profile.grade && VALID_SCHOOL_GRADES.has(profile.grade) ? { grade: profile.grade } : {}),
+          ...(profile.teacherName ? { teacherName: profile.teacherName.trim().slice(0, 60) } : {}),
+          ...updateFields,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        farmersNeedingCreatedAtBackfill.delete(profile.farmerKey);
+      } catch (createErr) {
+        handleFirestoreError(createErr, OperationType.CREATE, path);
+      }
+    } else {
+      handleFirestoreError(err, OperationType.UPDATE, path);
+    }
   }
 
-  void syncLeaderboardStudent(profile).catch((err) => {
+  void syncLeaderboardStudent(normalizedProfile).catch((err) => {
     console.error('Failed to sync student progress to leaderboard:', err);
+  });
+}
+
+function drainFarmerWriteQueue(farmerKey: string): void {
+  const queue = farmerWriteQueues.get(farmerKey);
+  if (!queue || queue.inFlight || !queue.pendingProfile) return;
+
+  const profileToSave = queue.pendingProfile;
+  const waitersToResolve = queue.waiters;
+  queue.pendingProfile = null;
+  queue.waiters = [];
+
+  queue.inFlight = executeFarmerSaveOnce(profileToSave)
+    .then(() => {
+      for (const w of waitersToResolve) w.resolve();
+    })
+    .catch((err) => {
+      for (const w of waitersToResolve) w.reject(err);
+    })
+    .finally(() => {
+      queue.inFlight = null;
+      if (queue.pendingProfile) {
+        drainFarmerWriteQueue(farmerKey);
+      } else if (queue.debounceTimer === null) {
+        farmerWriteQueues.delete(farmerKey);
+      }
+    });
+}
+
+export function saveFarmerProgress(
+  profile: FarmerProfile,
+  options?: { coalesceMs?: number }
+): Promise<void> {
+  const farmerKey = profile.farmerKey;
+  let queue = farmerWriteQueues.get(farmerKey);
+  if (!queue) {
+    queue = {
+      inFlight: null,
+      pendingProfile: null,
+      debounceTimer: null,
+      waiters: [],
+    };
+    farmerWriteQueues.set(farmerKey, queue);
+  }
+
+  queue.pendingProfile = profile;
+  const coalesceMs = options?.coalesceMs ?? 0;
+
+  return new Promise<void>((resolve, reject) => {
+    queue!.waiters.push({ resolve, reject });
+    if (queue!.debounceTimer !== null && typeof window !== 'undefined') {
+      window.clearTimeout(queue!.debounceTimer);
+      queue!.debounceTimer = null;
+    }
+    if (coalesceMs > 0 && typeof window !== 'undefined') {
+      queue!.debounceTimer = window.setTimeout(() => {
+        if (queue) queue.debounceTimer = null;
+        drainFarmerWriteQueue(farmerKey);
+      }, coalesceMs);
+    } else {
+      drainFarmerWriteQueue(farmerKey);
+    }
   });
 }
 

@@ -14,6 +14,7 @@ import {
 import {
   db,
   handleFirestoreError,
+  logFirestoreListenerError,
   OperationType,
   SCHOOL_GRADES,
   type FarmerProfile,
@@ -588,12 +589,14 @@ export async function syncLeaderboardStudent(
   let existingUnits = 0;
   let existingCount = 0;
   let exists = false;
+  let needsCreatedAt = false;
 
   try {
     const snap = await getDoc(ref);
     if (snap.exists()) {
       exists = true;
       const d = snap.data() as Record<string, unknown>;
+      needsCreatedAt = !d.createdAt;
       existingUnits =
         typeof d.totalHarvestUnits === 'number' ? Math.max(0, Math.round(d.totalHarvestUnits)) : 0;
       existingCount =
@@ -623,6 +626,7 @@ export async function syncLeaderboardStudent(
         totalHarvestedCount: Math.min(100000, targetCount),
         foodServings: safeServings,
         litresSaved: safeLitres,
+        ...(needsCreatedAt ? { createdAt: serverTimestamp() } : {}),
         updatedAt: serverTimestamp(),
       });
     } catch (err) {
@@ -688,7 +692,7 @@ export function subscribeToLeaderboardStudents(
       onData(rows);
     },
     (err) => {
-      handleFirestoreError(err, OperationType.LIST, path);
+      logFirestoreListenerError(err, OperationType.LIST, path);
     }
   );
 }
@@ -725,7 +729,7 @@ export function subscribeToGradeSaleEvents(
       onData(rows);
     },
     (err) => {
-      handleFirestoreError(err, OperationType.LIST, path);
+      logFirestoreListenerError(err, OperationType.LIST, path);
     }
   );
 }

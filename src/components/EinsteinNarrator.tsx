@@ -65,6 +65,8 @@ const EinsteinSvgPortrait: React.FC<{ speaking: boolean }> = ({ speaking }) => (
       cx="48"
       cy="61"
       rx="5.2"
+      ry={1.5}
+      initial={{ ry: 1.5 }}
       animate={
         speaking
           ? { ry: [1.5, 4.2, 2.0, 4.6, 1.5] }

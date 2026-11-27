@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import {
   ArrowRight,
+  Eye,
+  EyeOff,
   GraduationCap,
   HeartHandshake,
   Plus,
@@ -64,6 +66,9 @@ export const FarmerLoginOverlay: React.FC<FarmerLoginOverlayProps> = ({
   const [adminName, setAdminName] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [adminStatus, setAdminStatus] = useState<AdminClaimStatus | null>(null);
+  const [showStudentPass, setShowStudentPass] = useState(false);
+  const [showParentPass, setShowParentPass] = useState(false);
+  const [showAdminPass, setShowAdminPass] = useState(false);
 
   useEffect(() => {
     if (activeTab !== 'admin') return;
@@ -82,19 +87,18 @@ export const FarmerLoginOverlay: React.FC<FarmerLoginOverlayProps> = ({
 
   const canSubmitStudent =
     farmerName.trim().length > 0 &&
-    studentPassword.length > 0 &&
-    studentSchoolName.trim().length > 0 &&
+    studentPassword.trim().length > 0 &&
     !loading;
 
   const canSubmitParent =
     parentPseudonym.trim().length > 0 &&
-    parentPassword.length > 0 &&
+    parentPassword.trim().length > 0 &&
     parentSchoolName.trim().length > 0 &&
     parentGrades.length > 0 &&
     !loading;
 
   const canSubmitAdmin =
-    adminName.trim().length > 0 && adminPassword.length >= 4 && !loading;
+    adminName.trim().length > 0 && adminPassword.trim().length >= 4 && !loading;
 
   const handleSwitchTab = (tab: LoginTab) => {
     setActiveTab(tab);
@@ -248,14 +252,28 @@ export const FarmerLoginOverlay: React.FC<FarmerLoginOverlayProps> = ({
               >
                 Password (any letters or numbers)
               </label>
-              <input
-                id="farmer-passcode-input"
-                type="password"
-                value={studentPassword}
-                onChange={(e) => setStudentPassword(e.target.value)}
-                placeholder="Your secret password"
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-              />
+              <div className="relative">
+                <input
+                  id="farmer-passcode-input"
+                  type={showStudentPass ? 'text' : 'password'}
+                  value={studentPassword}
+                  onChange={(e) => setStudentPassword(e.target.value)}
+                  autoComplete="current-password"
+                  placeholder="Your secret password"
+                  className="w-full rounded-lg bg-slate-900 border border-slate-700 pl-3.5 pr-10 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowStudentPass((v) => !v)}
+                  aria-label={showStudentPass ? 'Hide password' : 'Show password'}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-white cursor-pointer"
+                >
+                  {showStudentPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              <p className="mt-1 text-[11px] text-slate-400">
+                Use the exact same Farmer Name + Password next time to reload your farm.
+              </p>
             </div>
 
             <div>
@@ -263,7 +281,7 @@ export const FarmerLoginOverlay: React.FC<FarmerLoginOverlayProps> = ({
                 htmlFor="student-school-input"
                 className="block text-xs font-medium text-slate-300 mb-1"
               >
-                School Name
+                School Name <span className="text-slate-400">(Optional when returning)</span>
               </label>
               <input
                 id="student-school-input"
@@ -315,7 +333,7 @@ export const FarmerLoginOverlay: React.FC<FarmerLoginOverlayProps> = ({
               />
             </div>
           </div>
-        ) : (
+        ) : activeTab === 'parent' ? (
           <div className="mt-4 space-y-3">
             <div>
               <label
@@ -364,14 +382,25 @@ export const FarmerLoginOverlay: React.FC<FarmerLoginOverlayProps> = ({
               >
                 Password (any letters or numbers)
               </label>
-              <input
-                id="parent-password-input"
-                type="password"
-                value={parentPassword}
-                onChange={(e) => setParentPassword(e.target.value)}
-                placeholder="Your secret password"
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
-              />
+              <div className="relative">
+                <input
+                  id="parent-password-input"
+                  type={showParentPass ? 'text' : 'password'}
+                  value={parentPassword}
+                  onChange={(e) => setParentPassword(e.target.value)}
+                  autoComplete="current-password"
+                  placeholder="Your secret password"
+                  className="w-full rounded-lg bg-slate-900 border border-slate-700 pl-3.5 pr-10 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowParentPass((v) => !v)}
+                  aria-label={showParentPass ? 'Hide password' : 'Show password'}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-white cursor-pointer"
+                >
+                  {showParentPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
             <div>
@@ -442,9 +471,7 @@ export const FarmerLoginOverlay: React.FC<FarmerLoginOverlayProps> = ({
               )}
             </div>
           </div>
-        )}
-
-        {activeTab === 'admin' && (
+        ) : (
           <div className="mt-4 space-y-3">
             <div className="rounded-xl bg-sky-950/40 border border-sky-500/35 p-3 text-xs text-sky-200 leading-relaxed">
               {adminStatus?.claimed
@@ -478,14 +505,25 @@ export const FarmerLoginOverlay: React.FC<FarmerLoginOverlayProps> = ({
               >
                 Admin Passcode (min 4 characters)
               </label>
-              <input
-                id="admin-passcode-input"
-                type="password"
-                value={adminPassword}
-                onChange={(e) => setAdminPassword(e.target.value)}
-                placeholder="Enter admin passcode"
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
-              />
+              <div className="relative">
+                <input
+                  id="admin-passcode-input"
+                  type={showAdminPass ? 'text' : 'password'}
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value)}
+                  autoComplete="current-password"
+                  placeholder="Enter admin passcode"
+                  className="w-full rounded-lg bg-slate-900 border border-slate-700 pl-3.5 pr-10 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowAdminPass((v) => !v)}
+                  aria-label={showAdminPass ? 'Hide passcode' : 'Show passcode'}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-white cursor-pointer"
+                >
+                  {showAdminPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
           </div>
         )}

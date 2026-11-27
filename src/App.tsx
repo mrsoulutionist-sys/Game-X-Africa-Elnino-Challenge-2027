@@ -21,6 +21,7 @@ import {
   claimOrLoginAdmin,
   DEFAULT_SYSTEM_CONFIG,
   recordCompetitionRun,
+  restoreAdminByKey,
   subscribeToAdminDocuments,
   subscribeToSystemConfig,
   type AdminDocumentRecord,
@@ -30,9 +31,15 @@ import {
   type SystemConfigState,
 } from './firebase/adminService';
 import {
+  clearActiveSession,
+  formatAuthErrorMessage,
+  loadActiveSession,
   loginOrCreateFarmer,
   loginOrCreateParent,
   resizeTierArray,
+  restoreFarmerByKey,
+  restoreParentByKey,
+  saveActiveSession,
   saveFarmerProgress,
   testFirestoreConnection,
   type ActiveZone,
@@ -135,6 +142,7 @@ export function App() {
   const [farmerProfile, setFarmerProfile] = useState<FarmerProfile | null>(null);
   const [parentProfile, setParentProfile] = useState<ParentProfile | null>(null);
   const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(null);
+  const [sessionRestoring, setSessionRestoring] = useState<boolean>(() => Boolean(loadActiveSession()));
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
@@ -162,6 +170,7 @@ export function App() {
   const [bannerVisible, setBannerVisible] = useState(false);
   const [bannerIndex, setBannerIndex] = useState(0);
   const optimalChimePlayedRef = useRef(false);
+  const harvestInFlightTiersRef = useRef<Set<number>>(new Set());
   const solarActionHandlerRef = useRef<(target: SolarTargetKind) => void>(() => {});
 
   useEffect(() => {
@@ -215,17 +224,23 @@ export function App() {
     return () => window.clearInterval(id);
   }, [farmerProfile?.farmerKey, systemConfig.competitionTimerEnabled]);
 
-  const persistProfileUpdate = useCallback((updater: (prev: FarmerProfile) => FarmerProfile) => {
-    const current = profileRef.current;
-    if (!current) return;
-    const next = updater(current);
-    if (next === current) return;
-    profileRef.current = next;
-    setFarmerProfile(next);
-    void saveFarmerProgress(next).catch((err) => {
-      console.error('Failed to persist farmer progress:', err);
-    });
-  }, []);
+  const persistProfileUpdate = useCallback(
+    (
+      updater: (prev: FarmerProfile) => FarmerProfile,
+      options?: { coalesceMs?: number }
+    ) => {
+      const current = profileRef.current;
+      if (!current) return;
+      const next = updater(current);
+      if (next === current) return;
+      profileRef.current = next;
+      setFarmerProfile(next);
+      void saveFarmerProgress(next, options).catch((err) => {
+        console.error('Failed to persist farmer progress:', err);
+      });
+    },
+    []
+  );
 
   useEffect(() => {
     void testFirestoreConnection();
@@ -415,6 +430,81 @@ export function App() {
     };
   }, [persistProfileUpdate]);
 
+  useEffect(() => {
+    const saved = loadActiveSession();
+    if (!saved) {
+      setSessionRestoring(false);
+      return;
+    }
+
+    let cancelled = false;
+    const restore = async () => {
+      try {
+        if (saved.role === 'student') {
+          const restored = await restoreFarmerByKey(saved.key);
+          if (cancelled) return;
+          if (!restored) {
+            clearActiveSession();
+            return;
+          }
+          const spawnProfile: FarmerProfile =
+            restored.activeZone === 'kitchen' ? restored : { ...restored, activeZone: 'kitchen' };
+          profileRef.current = spawnProfile;
+          setParentProfile(null);
+          setAdminProfile(null);
+          setFarmerProfile(spawnProfile);
+          setNowMs(Date.now());
+          sceneRef.current?.applySavedProfile(
+            'kitchen',
+            spawnProfile.kitchenStep,
+            spawnProfile.rackSize,
+            spawnProfile.tiers,
+            false,
+            toResilienceState(spawnProfile),
+            spawnProfile.door3,
+            spawnProfile.builtRacks,
+            spawnProfile.solar
+          );
+          if (restored.activeZone !== 'kitchen') {
+            void saveFarmerProgress(spawnProfile).catch(() => {});
+          }
+          void syncStudentActiveGrows(spawnProfile).catch(() => {});
+        } else if (saved.role === 'parent') {
+          const restored = await restoreParentByKey(saved.key);
+          if (cancelled) return;
+          if (!restored) {
+            clearActiveSession();
+            return;
+          }
+          profileRef.current = null;
+          setFarmerProfile(null);
+          setAdminProfile(null);
+          setParentProfile(restored);
+        } else if (saved.role === 'admin') {
+          const restored = await restoreAdminByKey(saved.key);
+          if (cancelled) return;
+          if (!restored) {
+            clearActiveSession();
+            return;
+          }
+          profileRef.current = null;
+          setFarmerProfile(null);
+          setParentProfile(null);
+          setAdminProfile(restored);
+        }
+      } finally {
+        if (!cancelled) {
+          setSessionRestoring(false);
+        }
+      }
+    };
+
+    void restore();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const hasActiveCrops = Boolean(farmerProfile?.tiers.some((t) => t.cropId !== null));
 
   useEffect(() => {
@@ -540,6 +630,7 @@ export function App() {
         const { profile, isReturning } = await loginOrCreateFarmer(farmerName, passcode, meta);
         const spawnProfile: FarmerProfile =
           profile.activeZone === 'kitchen' ? profile : { ...profile, activeZone: 'kitchen' };
+        saveActiveSession({ role: 'student', key: spawnProfile.farmerKey });
         setParentProfile(null);
         setAdminProfile(null);
         profileRef.current = spawnProfile;
@@ -570,7 +661,7 @@ export function App() {
           console.error('Failed to sync student active grows on login:', err);
         });
       } catch (err) {
-        setLoginError(err instanceof Error ? err.message : 'Unable to load farm profile.');
+        setLoginError(formatAuthErrorMessage(err, 'Unable to load farm profile.'));
       } finally {
         setLoginLoading(false);
       }
@@ -583,12 +674,13 @@ export function App() {
     setLoginError(null);
     try {
       const { profile } = await loginOrCreateParent(payload);
+      saveActiveSession({ role: 'parent', key: profile.parentKey });
       profileRef.current = null;
       setFarmerProfile(null);
       setAdminProfile(null);
       setParentProfile(profile);
     } catch (err) {
-      setLoginError(err instanceof Error ? err.message : 'Unable to load parent profile.');
+      setLoginError(formatAuthErrorMessage(err, 'Unable to load parent portal.'));
     } finally {
       setLoginLoading(false);
     }
@@ -599,18 +691,20 @@ export function App() {
     setLoginError(null);
     try {
       const profile = await claimOrLoginAdmin(adminName, passcode);
+      saveActiveSession({ role: 'admin', key: profile.adminKey });
       profileRef.current = null;
       setFarmerProfile(null);
       setParentProfile(null);
       setAdminProfile(profile);
     } catch (err) {
-      setLoginError(err instanceof Error ? err.message : 'Unable to verify Admin access.');
+      setLoginError(formatAuthErrorMessage(err, 'Unable to verify Admin access.'));
     } finally {
       setLoginLoading(false);
     }
   }, []);
 
   const handleLogout = useCallback(() => {
+    clearActiveSession();
     workshopVoiceover.stop();
     setRackPanelOpen(false);
     setElNinoHubOpen(false);
@@ -738,11 +832,13 @@ export function App() {
 
   const handleDeployPipe = useCallback(
     (tierIndex: number) => {
-      if (!profileRef.current || profileRef.current.kitchenStep !== 'COMPLETE') return;
-      if (!profileRef.current.builtRacks.some((b) => b.rackIndex === tierIndex)) return;
-      workshopAudio.playPickup();
+      let didDeploy = false;
       persistProfileUpdate((prev) => {
+        if (prev.kitchenStep !== 'COMPLETE') return prev;
+        if (tierIndex < 0 || tierIndex >= prev.rackSize) return prev;
+        if (prev.tiers[tierIndex]?.pipeInstalled) return prev;
         if (!prev.builtRacks.some((b) => b.rackIndex === tierIndex)) return prev;
+        didDeploy = true;
         const nextTiers: TierSaveState[] = prev.tiers.map((t, idx) =>
           idx === tierIndex
             ? {
@@ -766,6 +862,8 @@ export function App() {
         );
         return nextProfile;
       });
+      if (!didDeploy) return;
+      workshopAudio.playPickup();
       sceneRef.current?.clearCompletedPipeSilently();
       workshopVoiceover.speakCustom(
         `Rack ${tierIndex + 1} PVC manifold mounted! Pick an El Niño-resilient seed, install your JoJo tank, or add shade cloth before a heatwave hits.`
@@ -776,18 +874,22 @@ export function App() {
 
   const handlePlantSeed = useCallback(
     (tierIndex: number, cropId: CropId) => {
+      if (!getCropById(cropId)) return;
       const now = Date.now();
-      const prevSnapshot = profileRef.current;
       const limit = Math.max(1, systemConfigRef.current.compostYieldCycleLimit);
-      if (prevSnapshot && prevSnapshot.compostYieldsSinceRefresh >= limit) {
-        workshopVoiceover.speakCustom(
-          `Your rack needs fresh compost after ${limit} yields! Head to Door 3 Compost to prepare and bring in a new batch first.`
-        );
-        return;
-      }
-      workshopAudio.playPlanting();
+      let didPlant = false;
+      let nextSnapshot: FarmerProfile | null = null;
+      let blockedByCompost = false;
+
       persistProfileUpdate((prev) => {
-        if (prev.compostYieldsSinceRefresh >= limit) return prev;
+        if (prev.compostYieldsSinceRefresh >= limit) {
+          blockedByCompost = true;
+          return prev;
+        }
+        if (tierIndex < 0 || tierIndex >= prev.rackSize) return prev;
+        const targetTier = prev.tiers[tierIndex];
+        if (!targetTier || !targetTier.pipeInstalled || targetTier.cropId !== null) return prev;
+        didPlant = true;
         const nextTiers = prev.tiers.map((t, idx) =>
           idx === tierIndex
             ? {
@@ -804,21 +906,22 @@ export function App() {
           toResilienceState(prev),
           prev.builtRacks
         );
-        return { ...prev, tiers: nextTiers };
+        nextSnapshot = { ...prev, tiers: nextTiers };
+        return nextSnapshot;
       });
-      if (prevSnapshot && prevSnapshot.compostYieldsSinceRefresh < limit) {
-        const nextSnapshot: FarmerProfile = {
-          ...prevSnapshot,
-          tiers: prevSnapshot.tiers.map((t, idx) =>
-            idx === tierIndex
-              ? { ...t, cropId, plantedAtMs: now, wateredAtMs: now }
-              : t
-          ),
-        };
-        void syncStudentActiveGrows(nextSnapshot).catch((err) => {
-          console.error('Failed to sync planted crop to store pipeline:', err);
-        });
+
+      if (blockedByCompost) {
+        workshopVoiceover.speakCustom(
+          `Your rack needs fresh compost after ${limit} yields! Head to Door 3 Compost to prepare and bring in a new batch first.`
+        );
+        return;
       }
+      if (!didPlant || !nextSnapshot) return;
+
+      workshopAudio.playPlanting();
+      void syncStudentActiveGrows(nextSnapshot).catch((err) => {
+        console.error('Failed to sync planted crop to store pipeline:', err);
+      });
       setNowMs(now);
     },
     [persistProfileUpdate]
@@ -827,9 +930,24 @@ export function App() {
   const handleWaterTier = useCallback(
     (tierIndex: number) => {
       const now = Date.now();
-      workshopAudio.playPourAndBloom();
+      let didWater = false;
       persistProfileUpdate((prev) => {
-        if (prev.jojoLitres < 3) return prev;
+        if (tierIndex < 0 || tierIndex >= prev.rackSize) return prev;
+        const targetTier = prev.tiers[tierIndex];
+        if (!targetTier || !targetTier.pipeInstalled || prev.jojoLitres < 3) return prev;
+        const pumpEff = computeSolarTelemetry(prev.solar, prev.weatherMode).gardenPumpEfficiencyPct;
+        const live = computeTierLiveMetrics(
+          targetTier,
+          now,
+          prev.weatherMode,
+          prev.shadeClothInstalled,
+          prev.windbreakInstalled,
+          prev.stormBraceInstalled,
+          systemConfigRef.current.maxHarvestHoursCap,
+          pumpEff
+        );
+        if (live.waterPct >= 95) return prev;
+        didWater = true;
         const nextTiers = prev.tiers.map((t, idx) =>
           idx === tierIndex ? { ...t, wateredAtMs: now } : t
         );
@@ -847,6 +965,8 @@ export function App() {
         );
         return nextProfile;
       });
+      if (!didWater) return;
+      workshopAudio.playPourAndBloom();
       setNowMs(now);
     },
     [persistProfileUpdate]
@@ -854,70 +974,107 @@ export function App() {
 
   const handleHarvestTier = useCallback(
     (tierIndex: number) => {
-      const now = Date.now();
-      const prevSnapshot = profileRef.current;
-      const harvestedCrop = getCropById(prevSnapshot?.tiers[tierIndex]?.cropId ?? null);
-      const limit = Math.max(1, systemConfigRef.current.compostYieldCycleLimit);
-      const solarDustLimit = Math.max(1, systemConfigRef.current.solarDustYieldTriggerLimit);
-      const compEnabled = systemConfigRef.current.competitionTimerEnabled;
-      const startMs = competitionStartRef.current;
-      const elapsed = compEnabled && startMs !== null ? Math.max(500, now - startMs) : null;
+      if (harvestInFlightTiersRef.current.has(tierIndex)) return;
+      harvestInFlightTiersRef.current.add(tierIndex);
 
-      workshopAudio.playPourAndBloom();
-      persistProfileUpdate((prev) => {
-        const tierCrop = getCropById(prev.tiers[tierIndex]?.cropId ?? null);
-        const servingsGain = tierCrop?.servingsPerHarvest ?? 4;
-        const nextTiers = prev.tiers.map((t, idx) =>
-          idx === tierIndex
-            ? {
-                ...t,
-                cropId: null,
-                plantedAtMs: null,
-                wateredAtMs: now,
-              }
-            : t
-        );
-        const nextSolarYields = Math.min(50, prev.solar.yieldsSinceClean + 1);
-        const shouldTriggerDust = prev.solar.step >= 3 && nextSolarYields >= solarDustLimit;
-        const nextSolar: SolarProgressState = {
-          ...prev.solar,
-          yieldsSinceClean: nextSolarYields,
-          dustLevel: shouldTriggerDust ? 100 : prev.solar.dustLevel,
-        };
-        sceneRef.current?.syncGardenTiers(
-          prev.rackSize,
-          nextTiers,
-          toResilienceState(prev),
-          prev.builtRacks,
-          nextSolar
-        );
-        const nextBest =
-          elapsed !== null
-            ? prev.bestCompetitionMs == null
-              ? elapsed
-              : Math.min(prev.bestCompetitionMs, elapsed)
-            : prev.bestCompetitionMs ?? null;
-        return {
-          ...prev,
-          totalHarvestedCount: prev.totalHarvestedCount + 1,
-          foodServings: prev.foodServings + servingsGain,
-          compostYieldsSinceRefresh: Math.min(50, prev.compostYieldsSinceRefresh + 1),
-          bestCompetitionMs: nextBest,
-          tiers: nextTiers,
-          solar: nextSolar,
-        };
-      });
-      if (prevSnapshot) {
-        const yieldQty = Math.max(
-          1,
-          Math.min(8, Math.round((harvestedCrop?.servingsPerHarvest ?? 4) / 2))
-        );
+      try {
+        const now = Date.now();
+        const limit = Math.max(1, systemConfigRef.current.compostYieldCycleLimit);
+        const solarDustLimit = Math.max(1, systemConfigRef.current.solarDustYieldTriggerLimit);
+        const maxCap = systemConfigRef.current.maxHarvestHoursCap;
+        const compEnabled = systemConfigRef.current.competitionTimerEnabled;
+        const startMs = competitionStartRef.current;
+        const elapsed = compEnabled && startMs !== null ? Math.max(500, now - startMs) : null;
+
+        let didHarvest = false;
+        let harvestedCropName = 'Fresh Garden Greens';
+        let harvestedCropShort = 'Crop';
+        let yieldQty = 2;
+        let updatedSnapshot: FarmerProfile | null = null;
+        let triggeredSolarDust = false;
+        let nextYieldCount = 0;
+
+        persistProfileUpdate((prev) => {
+          if (tierIndex < 0 || tierIndex >= prev.rackSize) return prev;
+          const targetTier = prev.tiers[tierIndex];
+          if (!targetTier || !targetTier.pipeInstalled || !targetTier.cropId) return prev;
+          const pumpEff = computeSolarTelemetry(prev.solar, prev.weatherMode).gardenPumpEfficiencyPct;
+          const live = computeTierLiveMetrics(
+            targetTier,
+            now,
+            prev.weatherMode,
+            prev.shadeClothInstalled,
+            prev.windbreakInstalled,
+            prev.stormBraceInstalled,
+            maxCap,
+            pumpEff
+          );
+          if (!live.harvestReady) return prev;
+
+          const tierCrop = getCropById(targetTier.cropId);
+          if (!tierCrop) return prev;
+
+          didHarvest = true;
+          harvestedCropName = tierCrop.name;
+          harvestedCropShort = tierCrop.shortLabel;
+          const servingsGain = tierCrop.servingsPerHarvest;
+          yieldQty = Math.max(1, Math.min(8, Math.round(servingsGain / 2)));
+
+          const nextTiers = prev.tiers.map((t, idx) =>
+            idx === tierIndex
+              ? {
+                  ...t,
+                  cropId: null,
+                  plantedAtMs: null,
+                  wateredAtMs: now,
+                }
+              : t
+          );
+          const nextSolarYields = Math.min(50, prev.solar.yieldsSinceClean + 1);
+          const shouldTriggerDust = prev.solar.step >= 3 && nextSolarYields >= solarDustLimit;
+          triggeredSolarDust = shouldTriggerDust;
+          const nextSolar: SolarProgressState = {
+            ...prev.solar,
+            yieldsSinceClean: nextSolarYields,
+            dustLevel: shouldTriggerDust ? 100 : prev.solar.dustLevel,
+          };
+          sceneRef.current?.syncGardenTiers(
+            prev.rackSize,
+            nextTiers,
+            toResilienceState(prev),
+            prev.builtRacks,
+            nextSolar
+          );
+          const nextBest =
+            elapsed !== null
+              ? prev.bestCompetitionMs == null
+                ? elapsed
+                : Math.min(prev.bestCompetitionMs, elapsed)
+              : prev.bestCompetitionMs ?? null;
+          nextYieldCount = Math.min(50, prev.compostYieldsSinceRefresh + 1);
+          updatedSnapshot = {
+            ...prev,
+            totalHarvestedCount: prev.totalHarvestedCount + 1,
+            foodServings: prev.foodServings + servingsGain,
+            compostYieldsSinceRefresh: nextYieldCount,
+            bestCompetitionMs: nextBest,
+            tiers: nextTiers,
+            solar: nextSolar,
+          };
+          return updatedSnapshot;
+        });
+
+        if (!didHarvest || !updatedSnapshot) return;
+
+        workshopAudio.playPourAndBloom();
+        const savedSnapshot: FarmerProfile = updatedSnapshot;
+
         void recordStudentHarvest({
-          profile: prevSnapshot,
-          itemTitle: harvestedCrop?.name ?? 'Fresh Garden Greens',
+          profile: savedSnapshot,
+          itemTitle: harvestedCropName,
           category: 'harvest_produce',
           quantity: yieldQty,
-          growId: `${prevSnapshot.farmerKey.slice(0, 24)}_tier_${tierIndex}`,
+          growId: `${savedSnapshot.farmerKey.slice(0, 24)}_tier_${tierIndex}`,
         }).catch((err) => {
           console.error('Failed to record student harvest to Produce Store:', err);
           workshopVoiceover.speakCustom(
@@ -927,32 +1084,29 @@ export function App() {
 
         if (elapsed !== null) {
           void recordCompetitionRun({
-            profile: prevSnapshot,
+            profile: savedSnapshot,
             elapsedMs: elapsed,
-            milestoneLabel: `Harvest: ${harvestedCrop?.shortLabel ?? 'Crop'}`,
+            milestoneLabel: `Harvest: ${harvestedCropShort}`,
           }).catch((err) => {
             console.error('Failed to record harvest competition run:', err);
           });
         }
-      }
 
-      const nextYieldCount = (prevSnapshot?.compostYieldsSinceRefresh ?? 0) + 1;
-      const nextSolarYieldCount = (prevSnapshot?.solar.yieldsSinceClean ?? 0) + 1;
-      const triggeredSolarDust =
-        Boolean(prevSnapshot && prevSnapshot.solar.step >= 3) &&
-        nextSolarYieldCount >= solarDustLimit;
-      if (triggeredSolarDust) {
-        workshopVoiceover.speakCustom(
-          'Solar efficiency dropping—check your power system! Dust built up on your Room 4 solar panels. Head to Door 4 Solar Lab to spray and wipe them clean!'
-        );
-      } else if (nextYieldCount >= limit) {
-        workshopVoiceover.speakCustom(
-          `Great harvest! After ${limit} yield${limit === 1 ? '' : 's'}, your rack compost needs refreshing—head to Door 3 Compost to bring a fresh compost batch in before planting again!`
-        );
-      } else {
-        workshopVoiceover.speakCustom(
-          'Great harvest! Your shaded wicking pipe saved water through the dry spell. Your fresh harvest is now live on the School Produce Store!'
-        );
+        if (triggeredSolarDust) {
+          workshopVoiceover.speakCustom(
+            'Solar efficiency dropping—check your power system! Dust built up on your Room 4 solar panels. Head to Door 4 Solar Lab to spray and wipe them clean!'
+          );
+        } else if (nextYieldCount >= limit) {
+          workshopVoiceover.speakCustom(
+            `Great harvest! After ${limit} yield${limit === 1 ? '' : 's'}, your rack compost needs refreshing—head to Door 3 Compost to bring a fresh compost batch in before planting again!`
+          );
+        } else {
+          workshopVoiceover.speakCustom(
+            'Great harvest! Your shaded wicking pipe saved water through the dry spell. Your fresh harvest is now live on the School Produce Store!'
+          );
+        }
+      } finally {
+        harvestInFlightTiersRef.current.delete(tierIndex);
       }
     },
     [persistProfileUpdate]
@@ -1311,45 +1465,51 @@ export function App() {
 
   const handleSetSolarAngles = useCallback(
     (tiltDeg: number, azimuthDeg: number) => {
-      persistProfileUpdate((prev) => {
-        const clampedTilt = Math.max(0, Math.min(75, Math.round(tiltDeg)));
-        const clampedAz = Math.max(-90, Math.min(90, Math.round(azimuthDeg)));
-        const draftSolar: SolarProgressState = {
-          ...prev.solar,
-          tiltDeg: clampedTilt,
-          azimuthDeg: clampedAz,
-        };
-        const tel = computeSolarTelemetry(draftSolar, prev.weatherMode);
-        if (tel.isOptimalCapture && !optimalChimePlayedRef.current) {
-          optimalChimePlayedRef.current = true;
-          workshopAudio.playPourAndBloom();
-          if (prev.solar.step === 4) {
-            workshopVoiceover.speakCustom(
-              'Optimal Solar Capture achieved! Your solar workshop is now running at full power for the Kitchen, Garden pumps, and Compost Lab.',
-              { hideText: true }
-            );
+      persistProfileUpdate(
+        (prev) => {
+          const clampedTilt = Math.max(0, Math.min(75, Math.round(tiltDeg)));
+          const clampedAz = Math.max(-90, Math.min(90, Math.round(azimuthDeg)));
+          const draftSolar: SolarProgressState = {
+            ...prev.solar,
+            tiltDeg: clampedTilt,
+            azimuthDeg: clampedAz,
+          };
+          const tel = computeSolarTelemetry(draftSolar, prev.weatherMode);
+          if (tel.isOptimalCapture && !optimalChimePlayedRef.current) {
+            optimalChimePlayedRef.current = true;
+            workshopAudio.playPourAndBloom();
+            if (prev.solar.step === 4) {
+              workshopVoiceover.speakCustom(
+                'Optimal Solar Capture achieved! Your solar workshop is now running at full power for the Kitchen, Garden pumps, and Compost Lab.',
+                { hideText: true }
+              );
+            }
+          } else if (!tel.isOptimalCapture) {
+            optimalChimePlayedRef.current = false;
           }
-        } else if (!tel.isOptimalCapture) {
-          optimalChimePlayedRef.current = false;
-        }
-        const nextSolar: SolarProgressState = {
-          ...draftSolar,
-          step:
-            prev.solar.step === 4 && tel.sunAlignmentPct >= 90 && prev.solar.dustLevel === 0
-              ? 5
-              : prev.solar.step,
-        };
-        sceneRef.current?.syncSolarProgress(nextSolar);
-        return { ...prev, solar: nextSolar };
-      });
+          const nextSolar: SolarProgressState = {
+            ...draftSolar,
+            step:
+              prev.solar.step === 4 && tel.sunAlignmentPct >= 90 && prev.solar.dustLevel === 0
+                ? 5
+                : prev.solar.step,
+          };
+          sceneRef.current?.syncSolarProgress(nextSolar);
+          return { ...prev, solar: nextSolar };
+        },
+        { coalesceMs: 220 }
+      );
     },
     [persistProfileUpdate]
   );
 
   const handleWashSolarPanels = useCallback(() => {
-    workshopAudio.playMistSpray();
-    sceneRef.current?.triggerSolarSprayAnimation();
+    let didClean = false;
     persistProfileUpdate((prev) => {
+      if (prev.solar.dustLevel <= 0 && prev.solar.yieldsSinceClean <= 0) {
+        return prev;
+      }
+      didClean = true;
       const nextSolar: SolarProgressState = {
         ...prev.solar,
         dustLevel: 0,
@@ -1359,6 +1519,15 @@ export function App() {
       sceneRef.current?.syncSolarProgress(nextSolar);
       return { ...prev, solar: nextSolar };
     });
+    if (!didClean) {
+      workshopVoiceover.speakCustom(
+        'Your solar panels are already spotless at zero percent dust!',
+        { hideText: true }
+      );
+      return;
+    }
+    workshopAudio.playMistSpray();
+    sceneRef.current?.triggerSolarSprayAnimation();
     workshopVoiceover.speakCustom(
       'Panels washed and wiped crystal clear! Dust removed—check your Sun Alignment meter above 90% to keep Garden irrigation at 100% power.',
       { hideText: true }
@@ -1771,8 +1940,18 @@ export function App() {
         </>
       )}
 
+      {/* Session Restore Backdrop */}
+      {sessionRestoring && !farmerProfile && !parentProfile && !adminProfile && (
+        <div className="fixed inset-0 z-40 bg-slate-950/85 flex items-center justify-center p-4">
+          <div className="rounded-2xl bg-slate-950 border border-emerald-500/40 px-6 py-5 text-center shadow-2xl">
+            <div className="text-sm font-semibold text-white">Restoring your workshop session...</div>
+            <div className="mt-1 text-xs text-slate-400">Syncing saved progress with Firebase</div>
+          </div>
+        </div>
+      )}
+
       {/* Split Login Overlay for Students, Parents / Sponsors, and Admin */}
-      {!farmerProfile && !parentProfile && !adminProfile && (
+      {!sessionRestoring && !farmerProfile && !parentProfile && !adminProfile && (
         <FarmerLoginOverlay
           onStudentLogin={handleStudentLogin}
           onParentLogin={handleParentLogin}

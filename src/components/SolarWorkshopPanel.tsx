@@ -353,11 +353,20 @@ export const SolarWorkshopPanel: React.FC<SolarWorkshopPanelProps> = ({
 
             <button
               type="button"
+              disabled={solar.dustLevel <= 0}
               onClick={onWashPanels}
-              className="flex items-center gap-1 px-2.5 py-0.5 rounded-lg font-semibold border bg-slate-900 hover:bg-slate-800 text-sky-300 border-sky-500/40 cursor-pointer"
+              className={`flex items-center gap-1 px-2.5 py-0.5 rounded-lg font-semibold border transition-colors ${
+                solar.dustLevel > 0
+                  ? 'bg-sky-600 hover:bg-sky-500 text-white border-sky-400 cursor-pointer'
+                  : 'bg-slate-900/70 text-slate-400 border-slate-800 cursor-not-allowed'
+              }`}
             >
               <Droplets className="w-3 h-3" />
-              <span>Clean ({solar.cleanCount}x)</span>
+              <span>
+                {solar.dustLevel > 0
+                  ? `Wash Dust (${solar.dustLevel}%)`
+                  : `Clean (${solar.cleanCount}x)`}
+              </span>
             </button>
           </div>
         </div>

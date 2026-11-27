@@ -12,6 +12,7 @@ import {
 import {
   db,
   handleFirestoreError,
+  logFirestoreListenerError,
   OperationType,
 } from './firebaseClient';
 import type { AdminProfile } from './adminService';
@@ -699,7 +700,7 @@ export function subscribeToSponsorSlots(
       onData(result);
     },
     (err) => {
-      handleFirestoreError(err, OperationType.LIST, path);
+      logFirestoreListenerError(err, OperationType.LIST, path);
     }
   );
 }

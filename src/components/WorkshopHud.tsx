@@ -216,7 +216,7 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
           <div
             role="status"
             aria-live="polite"
-            className="fixed top-[4.5rem] inset-x-0 z-30 pointer-events-none"
+            className="fixed top-[7.25rem] inset-x-0 z-30 pointer-events-none"
           >
             <div className="relative w-full overflow-hidden bg-slate-950/95 border-y-2 border-amber-400/85 py-2 pr-11 shadow-2xl">
               <div className="animate-banner-marquee items-center gap-4 text-xs sm:text-sm font-bold text-amber-100">
@@ -243,7 +243,7 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
           <div
             role="status"
             aria-live="polite"
-            className="fixed top-[4.5rem] left-1/2 -translate-x-1/2 z-30 w-[min(92vw,34rem)] pointer-events-auto"
+            className="fixed top-[7.25rem] left-1/2 -translate-x-1/2 z-30 w-[min(92vw,34rem)] pointer-events-none"
           >
             <div className="animate-banner-flash rounded-2xl bg-slate-950/95 border-2 border-amber-400 px-4 py-2.5 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2.5 min-w-0">
@@ -263,7 +263,7 @@ export const WorkshopHud: React.FC<WorkshopHudProps> = ({
                 type="button"
                 onClick={onDismissBanner}
                 aria-label="Dismiss announcement banner"
-                className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700 shrink-0 cursor-pointer"
+                className="pointer-events-auto p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700 shrink-0 cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
