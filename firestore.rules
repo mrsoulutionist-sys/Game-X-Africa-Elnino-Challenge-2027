@@ -84,14 +84,7 @@ service cloud.firestore {
 
     function isValidBuiltRackEntry(r) {
       return r is map
-        && r.keys().hasAll([
-          'rackIndex',
-          'materialId',
-          'isRecyclable',
-          'builderName',
-          'builtAtMs',
-          'quickBuilt'
-        ])
+        && r.size() == 6
         && r.keys().hasOnly([
           'rackIndex',
           'materialId',
@@ -100,7 +93,7 @@ service cloud.firestore {
           'builtAtMs',
           'quickBuilt'
         ])
-        && isIntIn(r.rackIndex, 0, 5)
+        && r.rackIndex in [0, 1, 2, 3, 4, 5]
         && r.materialId in [
           'reclaimed_pvc',
           'pallet_wood',
@@ -110,38 +103,20 @@ service cloud.firestore {
           'standard_timber'
         ]
         && r.isRecyclable is bool
-        && isStrIn(r.builderName, 1, 40)
+        && r.builderName is string
+        && r.builderName.size() >= 1
+        && r.builderName.size() <= 40
         && r.builtAtMs is int
         && r.builtAtMs >= 0
         && r.quickBuilt is bool;
     }
 
-    function isValidBuiltRackList(builtRacks) {
-      return builtRacks is list
-        && builtRacks.size() <= 6
-        && (builtRacks.size() == 0 || isValidBuiltRackEntry(builtRacks[0]));
-    }
-
-    function isValidGrade(g) {
-      return g in [
-        'Grade 4',
-        'Grade 5',
-        'Grade 6',
-        'Grade 7',
-        'Grade 8',
-        'Grade 9',
-        'Grade 10',
-        'Grade 11',
-        'Grade 12'
-      ];
-    }
-
     function isValidSolarFields(d) {
-      return (!('solarStep' in d) || (d.solarStep is int && d.solarStep >= 1 && d.solarStep <= 5))
-        && (!('solarFrameParts' in d) || (d.solarFrameParts is int && d.solarFrameParts >= 0 && d.solarFrameParts <= 4))
-        && (!('solarPanelParts' in d) || (d.solarPanelParts is int && d.solarPanelParts >= 0 && d.solarPanelParts <= 3))
+      return d.get('solarStep', 1) in [1, 2, 3, 4, 5]
+        && d.get('solarFrameParts', 0) in [0, 1, 2, 3, 4]
+        && d.get('solarPanelParts', 0) in [0, 1, 2, 3]
         && d.get('solarWiringMode', 'series') in ['series', 'parallel']
-        && (!('solarWiredStage' in d) || (d.solarWiredStage is int && d.solarWiredStage >= 0 && d.solarWiredStage <= 4))
+        && d.get('solarWiredStage', 0) in [0, 1, 2, 3, 4]
         && (!('solarTiltDeg' in d) || (d.solarTiltDeg is int && d.solarTiltDeg >= 0 && d.solarTiltDeg <= 75))
         && (!('solarAzimuthDeg' in d) || (d.solarAzimuthDeg is int && d.solarAzimuthDeg >= -90 && d.solarAzimuthDeg <= 90))
         && (!('solarDustLevel' in d) || (d.solarDustLevel is int && d.solarDustLevel >= 0 && d.solarDustLevel <= 100))
@@ -160,18 +135,18 @@ service cloud.firestore {
         && (!('litresSaved' in d) || (d.litresSaved is number && d.litresSaved >= 0 && d.litresSaved <= 1000000))
         && (!('foodServings' in d) || (d.foodServings is int && d.foodServings >= 0 && d.foodServings <= 1000000))
         && (!('bestCompetitionMs' in d) || d.bestCompetitionMs == null || (d.bestCompetitionMs is int && d.bestCompetitionMs >= 0 && d.bestCompetitionMs <= 86400000))
-        && (!('builtRacks' in d) || isValidBuiltRackList(d.builtRacks))
+        && (!('builtRacks' in d) || (d.builtRacks is list && d.builtRacks.size() <= 6 && (d.builtRacks.size() == 0 || isValidBuiltRackEntry(d.builtRacks[0]))))
         && (!('ecoBuilderPoints' in d) || (d.ecoBuilderPoints is int && d.ecoBuilderPoints >= 0 && d.ecoBuilderPoints <= 100000));
     }
 
     function isValidDoor3Fields(d) {
       return d.get('door3DripBottleType', null) in [null, 'clear_soda', 'green_sparkling', 'clear_water']
-        && (!('door3DripStep' in d) || (d.door3DripStep is int && d.door3DripStep >= 0 && d.door3DripStep <= 4))
+        && d.get('door3DripStep', 0) in [0, 1, 2, 3, 4]
         && d.get('door3CompostContainer', null) in [null, 'bucket', 'crate', 'pallet']
-        && (!('door3CompostStep' in d) || (d.door3CompostStep is int && d.door3CompostStep >= 0 && d.door3CompostStep <= 6))
-        && (!('door3CompostRejectTested' in d) || (d.door3CompostRejectTested is int && d.door3CompostRejectTested >= 0 && d.door3CompostRejectTested <= 4))
+        && d.get('door3CompostStep', 0) in [0, 1, 2, 3, 4, 5, 6]
+        && d.get('door3CompostRejectTested', 0) in [0, 1, 2, 3, 4]
         && d.get('door3MulchMaterial', null) in [null, 'cardboard', 'newspaper']
-        && (!('door3MulchStep' in d) || (d.door3MulchStep is int && d.door3MulchStep >= 0 && d.door3MulchStep <= 4))
+        && d.get('door3MulchStep', 0) in [0, 1, 2, 3, 4]
         && (!('compostYieldsSinceRefresh' in d) || (d.compostYieldsSinceRefresh is int && d.compostYieldsSinceRefresh >= 0 && d.compostYieldsSinceRefresh <= 50))
         && (!('compostCycleCount' in d) || (d.compostCycleCount is int && d.compostCycleCount >= 0 && d.compostCycleCount <= 10000));
     }
@@ -180,7 +155,7 @@ service cloud.firestore {
       return d.get('role', 'student') == 'student'
         && (!('schoolName' in d) || (d.schoolName is string && d.schoolName.size() >= 1 && d.schoolName.size() <= 100))
         && (!('schoolKey' in d) || (d.schoolKey is string && d.schoolKey.size() >= 1 && d.schoolKey.size() <= 100))
-        && (!('grade' in d) || isValidGrade(d.grade))
+        && d.get('grade', 'Grade 4') in ['Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10', 'Grade 11', 'Grade 12']
         && (!('teacherName' in d) || (d.teacherName is string && d.teacherName.size() <= 60));
     }
 
@@ -270,7 +245,7 @@ service cloud.firestore {
       return isValidFarmerDoc(d, pathKey)
         && d.farmerKey == e.farmerKey
         && (
-          ('createdAt' in e && d.createdAt == e.createdAt && !('createdAt' in d.diff(e).affectedKeys()))
+          ('createdAt' in e && d.createdAt == e.createdAt)
           || (!('createdAt' in e) && d.createdAt == request.time)
         )
         && d.updatedAt == request.time;
@@ -969,7 +944,7 @@ service cloud.firestore {
         && data.schoolName is string
         && data.schoolName.size() >= 1
         && data.schoolName.size() <= 100
-        && isValidGrade(data.grade)
+        && data.grade in ['Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10', 'Grade 11', 'Grade 12']
         && data.totalHarvestUnits is int
         && data.totalHarvestUnits >= 0
         && data.totalHarvestUnits <= 100000
